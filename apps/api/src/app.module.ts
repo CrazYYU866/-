@@ -4,6 +4,8 @@ import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { EquipmentModule } from './equipment/equipment.module';
 import { CommonModule } from './common/common.module';
 import { FilesModule } from './files/files.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -38,6 +40,8 @@ const env = loadEnv();
     FilesModule,
     OrganizationsModule,
     AdminModule,
+    CatalogModule,
+    EquipmentModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

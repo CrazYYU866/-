@@ -81,6 +81,18 @@ export class FilesService {
    */
   async canUserRead(userId: string, file: FileRow): Promise<boolean> {
     if (file.uploadedByUserId === userId) return true;
+    // Изображения категорий каталога видны всем пользователям.
+    const pub = await this.db.execute<{ ok: boolean }>(sql`SELECT true AS ok FROM equipment_categories WHERE image_file_id = ${file.id} LIMIT 1`);
+    if (pub.rows[0]) return true;
+    // Фото и документы техники — руководителям и диспетчерам компании.
+    const unit = await this.db.execute<{ ok: boolean }>(sql`
+      SELECT true AS ok FROM equipment_units u
+      JOIN organization_members m ON m.org_id = u.org_id AND m.user_id = ${userId} AND m.status = 'active'
+        AND m.role IN ('owner', 'manager', 'dispatcher')
+      WHERE u.id IN (SELECT unit_id FROM equipment_photos WHERE file_id = ${file.id}
+                     UNION SELECT owner_id FROM documents WHERE file_id = ${file.id} AND owner_type = 'equipment')
+      LIMIT 1`);
+    if (unit.rows[0]) return true;
     const docs = await this.db
       .select({ ownerType: documents.ownerType, ownerId: documents.ownerId })
       .from(documents)
