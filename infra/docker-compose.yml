@@ -1,0 +1,33 @@
+# Локальная инфраструктура для разработки.
+# Запуск: docker compose -f infra/docker-compose.yml up -d
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: kovsh
+      POSTGRES_PASSWORD: kovsh
+      POSTGRES_DB: kovsh
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kovsh"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  minio:
+    # S3-совместимое хранилище (в проде — Yandex Object Storage, В-37)
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: kovsh
+      MINIO_ROOT_PASSWORD: kovsh-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+volumes:
+  pgdata:
+  miniodata:
