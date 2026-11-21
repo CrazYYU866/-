@@ -57,6 +57,9 @@ export const SETTINGS_REGISTRY = {
   access_token_ttl_sec: { schema: positiveInt, default: 900, source: 'техническое' },
   refresh_token_ttl_days: { schema: positiveInt, default: 30, source: 'техническое' },
 
+  quote_ttl_min: { schema: positiveInt, default: 15, source: 'техническое' },
+  min_lead_time_min: { schema: positiveInt, default: 60, source: 'Л-4' },
+
   // Хранение данных
   gps_retention_hours: { schema: positiveInt, default: 48, source: 'П-16' },
   call_recording_retention_days: { schema: positiveInt, default: 180, source: 'В-27' },

@@ -10,3 +10,4 @@ process.env.DATA_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 process.env.ADMIN_JWT_SECRET = 'test-admin-secret-test-admin-secret-0001';
 process.env.STORAGE_DRIVER = 'local';
 process.env.STORAGE_LOCAL_DIR = require('node:path').join(require('node:os').tmpdir(), 'kovsh-test-storage');
+process.env.ROUTING_PROVIDER = 'dev';

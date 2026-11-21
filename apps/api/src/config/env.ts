@@ -28,11 +28,16 @@ const EnvSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Маршрутизация: dev — приблизительный расчёт для разработки; yandex — после получения ключа (П-19). */
+  ROUTING_PROVIDER: z.enum(['dev']).default('dev'),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
   TRUST_PROXY: z.coerce.boolean().default(false),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['SMS_PROVIDER'], message: 'тестовый SMS-провайдер запрещён в production' });
+  }
+  if (env.NODE_ENV === 'production' && env.ROUTING_PROVIDER === 'dev') {
+    ctx.addIssue({ code: 'custom', path: ['ROUTING_PROVIDER'], message: 'тестовая маршрутизация запрещена в production' });
   }
   if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
     ctx.addIssue({ code: 'custom', path: ['S3_BUCKET'], message: 'для s3 нужны S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY' });

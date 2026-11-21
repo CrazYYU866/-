@@ -6,6 +6,8 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { EquipmentModule } from './equipment/equipment.module';
+import { GeoModule } from './geo/geo.module';
+import { PricingModule } from './pricing/pricing.module';
 import { CommonModule } from './common/common.module';
 import { FilesModule } from './files/files.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -42,6 +44,8 @@ const env = loadEnv();
     AdminModule,
     CatalogModule,
     EquipmentModule,
+    GeoModule,
+    PricingModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

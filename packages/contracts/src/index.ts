@@ -6,3 +6,4 @@ export * from './auth';
 export * from './organizations';
 export * from './admin';
 export * from './catalog';
+export * from './pricing';
