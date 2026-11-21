@@ -31,11 +31,7 @@ export interface InvitationView {
   invitedAt: string;
 }
 
-/**
- * Проверка «у машиниста нет незавершённых заказов в этой компании» (Р-15, П-11).
- * Заказы появятся на этапе 6; до этого незавершённых заказов быть не может.
- * Модуль заказов заменит реализацию через провайдер ACTIVE_ORDERS_CHECK.
- */
+/** Проверка «у машиниста нет незавершённых заказов в этой компании» (Р-15, П-11). */
 export interface ActiveOrdersCheck {
   hasUnfinishedOrders(orgId: string, userId: string): Promise<boolean>;
 }

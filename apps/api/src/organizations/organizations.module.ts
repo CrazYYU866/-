@@ -1,4 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { DB, type Database } from '../database/database.module';
 import { AdminModule } from '../admin/admin.module';
 import { BankAccountService } from './bank-account.service';
 import { DocumentsService } from './documents.service';
@@ -8,8 +10,20 @@ import { OrganizationsService } from './organizations.service';
 import { PartnerMembersController } from './partner-members.controller';
 import { PartnerOrganizationsController } from './partner-organizations.controller';
 
-/** До появления модуля заказов (этап 6) незавершённых заказов не существует. */
-const noOrdersYet: ActiveOrdersCheck = { hasUnfinishedOrders: async () => false };
+/** Есть ли у машиниста незавершённые смены в заказах этой компании (Р-15, П-11). */
+const activeOrdersCheck = {
+  provide: ACTIVE_ORDERS_CHECK,
+  inject: [DB],
+  useFactory: (db: Database): ActiveOrdersCheck => ({
+    hasUnfinishedOrders: async (orgId, userId) => {
+      const res = await db.execute<{ ok: boolean }>(sql`
+        SELECT true AS ok FROM order_shifts s JOIN orders o ON o.id = s.order_id
+        WHERE o.partner_org_id = ${orgId} AND s.operator_user_id = ${userId} AND s.status NOT IN ('finished', 'cancelled')
+          AND o.status NOT IN ('cancelled', 'cancelled_unpaid', 'search_failed', 'completed', 'refund_pending') LIMIT 1`);
+      return Boolean(res.rows[0]);
+    },
+  }),
+};
 
 @Module({
   imports: [forwardRef(() => AdminModule)],
@@ -20,7 +34,7 @@ const noOrdersYet: ActiveOrdersCheck = { hasUnfinishedOrders: async () => false 
     DocumentsService,
     BankAccountService,
     OrgContextGuard,
-    { provide: ACTIVE_ORDERS_CHECK, useValue: noOrdersYet },
+    activeOrdersCheck,
   ],
   exports: [OrganizationsService, MembersService, DocumentsService, OrgContextGuard],
 })

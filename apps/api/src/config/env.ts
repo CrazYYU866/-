@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+/** Булево из переменной окружения: только «true»/«false» (z.coerce.boolean считает «false» истиной). */
+const envBool = (def: boolean) => z.enum(['true', 'false']).default(def ? 'true' : 'false').transform((v) => v === 'true');
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -30,8 +33,10 @@ const EnvSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   /** Маршрутизация: dev — приблизительный расчёт для разработки; yandex — после получения ключа (П-19). */
   ROUTING_PROVIDER: z.enum(['dev']).default('dev'),
+  /** Запускать обработчик отложенных заданий в этом процессе. */
+  JOBS_AUTORUN: envBool(true),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
-  TRUST_PROXY: z.coerce.boolean().default(false),
+  TRUST_PROXY: envBool(false),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['SMS_PROVIDER'], message: 'тестовый SMS-провайдер запрещён в production' });
