@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
+import { AuthModule } from './auth/auth.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
@@ -28,6 +29,7 @@ const env = loadEnv();
     RedisModule,
     SettingsModule,
     HealthModule,
+    AuthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

@@ -46,6 +46,17 @@ export const SETTINGS_REGISTRY = {
   first_order_promo_percent: { schema: percent, default: 10, source: 'В-33' },
   support_refund_limit_kopecks: { schema: nonNegativeInt, default: 1_000_000, source: 'К-14' },
 
+  // Вход по SMS и сессии. Технические значения безопасности, не бизнес-правила:
+  // предложены разработкой, могут быть изменены администратором.
+  otp_code_length: { schema: z.number().int().min(4).max(8), default: 6, source: 'техническое' },
+  otp_ttl_sec: { schema: positiveInt, default: 300, source: 'техническое' },
+  otp_max_attempts: { schema: positiveInt, default: 5, source: 'техническое' },
+  otp_resend_cooldown_sec: { schema: positiveInt, default: 60, source: 'техническое' },
+  otp_max_per_phone_per_hour: { schema: positiveInt, default: 5, source: 'техническое' },
+  otp_max_per_ip_per_hour: { schema: positiveInt, default: 30, source: 'техническое' },
+  access_token_ttl_sec: { schema: positiveInt, default: 900, source: 'техническое' },
+  refresh_token_ttl_days: { schema: positiveInt, default: 30, source: 'техническое' },
+
   // Хранение данных
   gps_retention_hours: { schema: positiveInt, default: 48, source: 'П-16' },
   call_recording_retention_days: { schema: positiveInt, default: 180, source: 'В-27' },
