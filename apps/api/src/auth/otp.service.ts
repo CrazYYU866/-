@@ -12,6 +12,8 @@ import { REDIS } from '../redis/redis.module';
 import { SettingsService } from '../settings/settings.service';
 import { SMS_PROVIDER, type SmsProvider } from './sms/sms.provider';
 
+export type OtpPurpose = 'login' | 'bank_account_change';
+
 @Injectable()
 export class OtpService {
   constructor(
@@ -22,7 +24,12 @@ export class OtpService {
     private readonly settings: SettingsService,
   ) {}
 
-  async request(phone: string, app: ClientApp, ip: string | null): Promise<OtpRequestResponse> {
+  async request(
+    phone: string,
+    app: ClientApp,
+    ip: string | null,
+    purpose: OtpPurpose = 'login',
+  ): Promise<OtpRequestResponse> {
     const [length, ttl, maxAttempts, cooldown, perPhone, perIp] = await Promise.all([
       this.settings.get('otp_code_length'),
       this.settings.get('otp_ttl_sec'),
@@ -33,7 +40,7 @@ export class OtpService {
     ]);
 
     // Повторная отправка не чаще одного раза в cooldown секунд.
-    const cooldownKey = `otp:cooldown:${app}:${phone}`;
+    const cooldownKey = `otp:cooldown:${purpose}:${app}:${phone}`;
     const acquired = await this.redis.set(cooldownKey, '1', 'EX', cooldown, 'NX');
     if (acquired !== 'OK') {
       const left = await this.redis.ttl(cooldownKey);
@@ -50,6 +57,7 @@ export class OtpService {
       .values({
         phone,
         app,
+        purpose,
         codeHash: 'pending',
         maxAttempts,
         expiresAt: new Date(Date.now() + ttl * 1000),
@@ -70,21 +78,33 @@ export class OtpService {
         and(
           eq(otpChallenges.phone, phone),
           eq(otpChallenges.app, app),
+          eq(otpChallenges.purpose, purpose),
           isNull(otpChallenges.consumedAt),
           lt(otpChallenges.createdAt, sql`(SELECT created_at FROM otp_challenges WHERE id = ${challenge.id})`),
         ),
       );
 
-    await this.sms.send(phone, `Код входа в «Ковш на Час»: ${code}. Никому его не сообщайте.`);
+    const text =
+      purpose === 'login'
+        ? `Код входа в «Ковш на Час»: ${code}. Никому его не сообщайте.`
+        : `Код подтверждения смены банковских реквизитов: ${code}. Если это не вы — обратитесь в поддержку.`;
+    await this.sms.send(phone, text);
     return { resendAfterSec: cooldown, expiresInSec: ttl };
   }
 
   /** Проверяет код. При успехе код погашается и больше не может быть использован. */
-  async verify(phone: string, app: ClientApp, code: string): Promise<void> {
+  async verify(phone: string, app: ClientApp, code: string, purpose: OtpPurpose = 'login'): Promise<void> {
     const [challenge] = await this.db
       .select()
       .from(otpChallenges)
-      .where(and(eq(otpChallenges.phone, phone), eq(otpChallenges.app, app), isNull(otpChallenges.consumedAt)))
+      .where(
+        and(
+          eq(otpChallenges.phone, phone),
+          eq(otpChallenges.app, app),
+          eq(otpChallenges.purpose, purpose),
+          isNull(otpChallenges.consumedAt),
+        ),
+      )
       .orderBy(desc(otpChallenges.createdAt))
       .limit(1);
 

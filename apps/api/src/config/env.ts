@@ -16,11 +16,29 @@ const EnvSchema = z.object({
    * Реальные провайдеры (SMS.ru / МТС Exolve, В-35) подключаются после выбора.
    */
   SMS_PROVIDER: z.enum(['dev']).default('dev'),
+  /** Ключ шифрования чувствительных полей (AES-256-GCM): 32 байта в base64. */
+  DATA_ENCRYPTION_KEY: z.string().refine((v) => Buffer.from(v, 'base64').length === 32, 'нужно 32 байта в base64'),
+  /** Секрет подписи access-токенов администраторов. */
+  ADMIN_JWT_SECRET: z.string().min(32),
+  /** Хранилище файлов: local (диск, для разработки) или s3 (Yandex Object Storage, В-37). */
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  STORAGE_LOCAL_DIR: z.string().default('./var/storage'),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().default('ru-central1'),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
   TRUST_PROXY: z.coerce.boolean().default(false),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['SMS_PROVIDER'], message: 'тестовый SMS-провайдер запрещён в production' });
+  }
+  if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
+    ctx.addIssue({ code: 'custom', path: ['S3_BUCKET'], message: 'для s3 нужны S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY' });
+  }
+  if (env.NODE_ENV === 'production' && env.STORAGE_DRIVER === 'local') {
+    ctx.addIssue({ code: 'custom', path: ['STORAGE_DRIVER'], message: 'локальное хранилище запрещено в production' });
   }
 });
 

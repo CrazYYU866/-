@@ -31,6 +31,8 @@ pnpm db:migrate
 pnpm start
 ```
 
+Первый суперадминистратор: `pnpm --filter @kovsh/api admin:create admin@example.ru "ФИО" "пароль-не-короче-12"`
+
 - Проверка состояния: http://localhost:3000/api/v1/health
 - Документация API (Swagger): http://localhost:3000/api/docs
 

@@ -15,6 +15,7 @@ export const otpChallenges = pgTable('otp_challenges', {
   id: uuid('id').primaryKey().defaultRandom(),
   phone: text('phone').notNull(),
   app: text('app', { enum: ['client', 'partner'] }).notNull(),
+  purpose: text('purpose', { enum: ['login', 'bank_account_change'] }).notNull().default('login'),
   codeHash: text('code_hash').notNull(),
   attempts: integer('attempts').notNull().default(0),
   maxAttempts: integer('max_attempts').notNull(),

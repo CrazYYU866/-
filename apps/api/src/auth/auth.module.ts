@@ -38,6 +38,6 @@ import { SMS_PROVIDER } from './sms/sms.provider';
       },
     },
   ],
-  exports: [SessionService, UsersService, JwtAuthGuard, JwtModule, SMS_PROVIDER],
+  exports: [SessionService, UsersService, JwtAuthGuard, JwtModule, SMS_PROVIDER, OtpService],
 })
 export class AuthModule {}

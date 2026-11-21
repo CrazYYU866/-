@@ -77,7 +77,7 @@ describe('Вход по SMS и сессии', () => {
   it('лимит запросов кода на номер в час', async () => {
     for (let i = 0; i < 5; i++) {
       await http().post('/api/v1/auth/otp/request').send({ phone: PHONE, app: 'client' }).expect(200);
-      await redis.del(`otp:cooldown:client:${PHONE}`);
+      await redis.del(`otp:cooldown:login:client:${PHONE}`);
     }
     const res = await http().post('/api/v1/auth/otp/request').send({ phone: PHONE, app: 'client' }).expect(429);
     expect(res.body.code).toBe('RATE_LIMITED');
