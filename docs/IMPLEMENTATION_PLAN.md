@@ -1,8 +1,11 @@
-# «Ковш на Час» — план реализации (черновик v0.1)
+# «Ковш на Час» — план реализации (черновик v0.2)
 
 > Статус: **на согласовании**. Код не пишется до подтверждения заказчиком.
 > Основа: ТЗ v1.0. Всё, чего нет в ТЗ, вынесено в раздел «Вопросы» (§10) и **не** считается принятым правилом.
 > Места, где я предлагаю техническое решение (а не бизнес-правило), помечены **[предложение]**.
+>
+> **Утверждённые решения (имеют приоритет над этим планом):**
+> - [01 — Исполнители и компании](decisions/01-partners-and-companies.md) — Р-1…Р-21, открытые вопросы П-1…П-19.
 
 ---
 
@@ -22,9 +25,10 @@
 | Роль | Приложение | Кто создаёт | Коротко |
 |---|---|---|---|
 | Заказчик | Клиентское | Сам, по телефону | Создаёт и оплачивает заказы, отслеживает, оценивает |
-| Владелец / руководитель организации (ИП или ЮЛ) | Партнёр | Сам, проходит модерацию | Полный доступ к организации |
-| Корпоративный диспетчер | Партнёр | Приглашает руководитель | Техника, линия, приём заказов, назначение машинистов |
-| Машинист | Партнёр (ограниченный режим) | Приглашает руководитель или диспетчер | Только назначенные заказы, статусы, GPS |
+| Главный владелец (`owner`), ровно один | Партнёр | Регистрирует организацию; смена — только через поддержку (Р-12) | Всё, что у руководителя + назначение/отзыв руководителей (Р-11) |
+| Руководитель (`manager`), может быть несколько | Партнёр | Назначает главный владелец | Все функции диспетчера + сотрудники, вся финансовая информация, настройки (Р-10) |
+| Корпоративный диспетчер (`dispatcher`) | Партнёр | Приглашает руководитель (Р-2) | Техника, линия, приём заказов, назначение/замена машинистов. Видит цену только своих заказов (Р-1). Может состоять в нескольких компаниях (Р-13) |
+| Машинист (`operator`) | Партнёр (ограниченный режим) | Приглашает **только** руководитель, машинист подтверждает привязку (Р-2, Р-14) | Назначенные заказы, статусы (в т. ч. офлайн), GPS, отказ, сообщение о проблеме. Один аккаунт на несколько компаний, единый календарь: один заказ в календарный день (Р-5) |
 | Независимый диспетчер (агент) | ? (см. В-21) | Сам, ИП/ЮЛ, модерация | Привлекает заказчиков, получает % |
 | Администратор (с подролями) | Веб-админка | Суперадмин | Модерация, справочники, финансы, споры |
 
@@ -132,7 +136,9 @@ docs/             ADR, API, этот план
 |---|---|---|
 | `organizations` | kind (partner / agent), legal_form (IP / LLC / …), name, inn, ogrn, kpp, legal_address, email, contact_phone, status (draft / pending_review / verified / rejected / blocked), rejection_reason, verified_at, region_id | unique (inn, kind) |
 | `organization_bank_accounts` | org_id, bik, account_no (enc), corr_account, bank_name, is_primary, verified | → organizations |
-| `organization_members` | org_id, user_id, role (owner / dispatcher / operator), status (invited / active / disabled), invited_by | unique (org_id, user_id) |
+| `organization_members` | org_id, user_id, role (owner / manager / dispatcher / operator), status (invited / active / blocked / detached), invited_by, detached_by, detached_at | unique (org_id, user_id); **unique (org_id) WHERE role='owner'** — ровно один главный владелец (Р-11) |
+| `organization_ownership_history` | org_id, from_user_id, to_user_id, admin_id, basis_documents, reason | только через админку (Р-12) |
+| `partner_incidents` | org_id, order_id, type (assignment_timeout / unit_replacement_failed / operator_declined / returned_to_search), meta | фиксация фактов (Р-7, Р-16) |
 | `invitations` | org_id, phone, role, token_hash, expires_at, accepted_at | → organizations |
 | `document_types` | code, title, applies_to (organization / equipment / operator), legal_form filter, required, has_expiry | справочник в админке |
 | `documents` | owner_type, owner_id, document_type_id, file_id, status (uploaded / approved / rejected / expired), reviewer_id, review_comment, expires_at | → document_types, files |
@@ -157,7 +163,7 @@ docs/             ADR, API, этот план
 | `equipment_photos` | unit_id, file_id, sort | → equipment_units |
 | `equipment_availability` | unit_id, тип и параметры (см. В-12) | модель зависит от ответа |
 | `unit_bookings` | unit_id, order_id, period `tstzrange` | **EXCLUDE USING gist (unit_id WITH =, period WITH &&)** — одна техника физически не может быть занята двумя заказами одновременно |
-| `operator_bookings` | member_id, order_id, period | то же для машиниста |
+| `operator_day_assignments` | **user_id** (не member!), work_date, order_id, org_id, status (active / declined / replaced / cancelled) | **UNIQUE (user_id, work_date) WHERE status='active'** — один заказ в календарный день на человека во всех компаниях (Р-5, Р-14) |
 
 ### 3.5. Тарифы и настройки
 
@@ -178,12 +184,18 @@ docs/             ADR, API, этот план
 | `order_status_history` | order_id, from_status, to_status, actor_type, actor_id, reason, meta, at | только добавление |
 | `order_offers` | order_id, unit_id, org_id, attempt_no, search_radius_km, route_km, score, status (pending / accepted / skipped / expired / revoked), offered_at, expires_at, responded_at, responder_id | **unique (order_id) WHERE status='pending'** — одновременно максимум одно активное предложение; unique (order_id, unit_id) |
 | `matching_runs` | order_id, step, radius, candidates (jsonb со скорингом) | для разбора спорных случаев «почему не мне» |
+| `order_assignments` | order_id, org_id, unit_id, operator_user_id, managing_member_id, assigned_by, assigned_at, ended_at, end_reason (replaced / declined / breakdown / returned_to_search) | полная история назначений техники и машинистов (Р-3, Р-8, Р-16) |
+| `order_incidents` | order_id, reported_by, type (breakdown / other), comment, photos, status | «Сообщить о проблеме» (Р-17) |
+
+Дополнения к `orders`: `managing_member_id` (диспетчер, управляющий заказом — Р-1, П-8), `assignment_deadline_at` (Р-7), `platform_delivery_subsidy` (Р-3).
+Дополнения к `order_status_history`: `client_event_id` (unique, идемпотентность офлайн-событий), `device_recorded_at`, `server_received_at`, `point`, `location_unavailable_reason` (Р-18).
 
 ### 3.7. GPS
 
 | Таблица | Ключевые поля | Примечание |
 |---|---|---|
-| `location_pings` | order_id, member_id, point, accuracy_m, speed, heading, battery, recorded_at, received_at | секционирование по месяцам, срок хранения настраивается (В-31) |
+| `location_pings` | order_id, operator_user_id, point, accuracy_m, speed, heading, battery, recorded_at, received_at | секционирование по дням; срок хранения — настройка `gps_retention_hours` **без значения по умолчанию**, утверждено «пара дней», точное значение — П-16 |
+| `order_routes` | order_id, polyline, distance_m, duration_s (с пробками), built_from_point, built_at, reason (initial / deviation / periodic) | маршрут и ETA (Р-19–21) |
 | `order_last_location` | order_id (PK), point, recorded_at | быстрый доступ для карты заказчика |
 
 ### 3.8. Коммуникации
@@ -241,7 +253,8 @@ docs/             ADR, API, этот план
 | `searching` — оплачен, поиск | Новый | система |
 | `offered` — предложен исполнителю | Новый («ищем») | исполнитель / таймер |
 | `accepted` — принят исполнителем | В работе | система |
-| `awaiting_assignment` — ждёт назначения техники и машиниста | В работе | диспетчер / руководитель |
+| `awaiting_assignment` — ждёт назначения техники и машиниста (10 минут, Р-7) | В работе | диспетчер / руководитель |
+| `assigned` — машинист назначен, подтверждение машиниста не нужно (Р-9) | В работе | машинист «Выехал» |
 | `en_route` — направляется | В работе | машинист |
 | `arrived` — техника прибыла | В работе | машинист |
 | `in_progress` — выполняется работа | В работе | машинист |
@@ -262,6 +275,9 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 ```
 
 - Переходы описываются конечным автоматом в одном модуле. Каждый переход проверяет роль инициатора и пишет запись в `order_status_history` в той же транзакции.
+- **Возврат в общий поиск** (`return_to_search`) из `accepted` / `awaiting_assignment` / `assigned` / `en_route`: истёк срок назначения (Р-7), нет замены техники (Р-3), нет замены машинисту (Р-16). Цена для заказчика не меняется.
+- Замена машиниста (Р-8) и техники внутри компании (Р-3) не меняют статус заказа, а пишутся в `order_assignments` и историю.
+- Статусы машиниста принимаются офлайн-пачкой с временем устройства (Р-18).
 - Обновление заказа идёт через `UPDATE … WHERE id=? AND status=? AND version=?`. Если ни одна строка не обновилась, переход отклоняется (конфликт).
 
 ---
@@ -293,9 +309,13 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 5. **Нет кандидатов:** следующий шаг радиуса по настройке (например, +N км каждые M секунд до максимума). Шаги и максимум — В-9. По исчерпании — В-10.
 6. Время на клиенте сверяется с сервером: таймер 40 с показывается по `expires_at` от сервера, а не от момента получения push.
 
-### 5.4. Корпоративный сценарий
+### 5.4. Корпоративный сценарий (по решениям Р-3…Р-16)
 
-Предложение получает **конкретная единица техники** (её база определяет доставку и радиус). Видят его все диспетчеры и руководитель организации (В-6). Принять может любой из них, сервер обеспечивает «первый выигрывает». После принятия — `awaiting_assignment`: назначается машинист (и, возможно, другая единица техники — В-5) с проверкой пересечений в `operator_bookings`. Дедлайн назначения — В-11.
+1. Предложение адресуется организации с указанием подходящей единицы техники. Принимает диспетчер или руководитель; ИП без диспетчера — сам (Р-4). Кто получает предложение при нескольких диспетчерах — П-8.
+2. После принятия — `awaiting_assignment`, таймер 10 минут (Р-7) и напоминания.
+3. Диспетчер видит список свободных в этот день машинистов своей компании (проверка единого календаря, Р-6) и выбирает одного. Назначение без подтверждения машиниста (Р-9), машинист получает уведомление.
+4. Замена машиниста — в любой момент на свободного, заказчик получает имя и фото нового (Р-8). Отказ машиниста → диспетчер назначает другого, иначе возврат в поиск (Р-16).
+5. Поломка или невозможность техники → замена из парка компании, цена для заказчика сохраняется, удорожание доставки покрывает платформа. Иначе возврат в поиск (Р-3).
 
 ---
 
@@ -372,13 +392,16 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 
 | Метод | Путь | Роль |
 |---|---|---|
-| POST | `/partner/organizations` | создать (ИП/ЮЛ), ИНН/ОГРН | любой новый пользователь |
+Все запросы `/partner/*` выполняются в контексте организации (`X-Org-Id`), права проверяются по роли в этой организации (Р-13). `GET /partner/memberships` — список организаций и ролей для переключателя.
+
+| POST | `/partner/organizations` | создать (ИП/ЮЛ), ИНН/ОГРН | любой новый пользователь (становится `owner`) |
 | GET/PATCH | `/partner/organizations/current` | реквизиты | owner |
 | POST | `/partner/organizations/current/submit` | отправить на проверку | owner |
 | GET/PUT | `/partner/organizations/current/bank-account` | реквизиты для выплат | owner |
 | GET/POST/DELETE | `/partner/organizations/current/documents` | документы | owner, dispatcher |
-| GET/POST | `/partner/members` · PATCH/DELETE `/partner/members/{id}` | сотрудники, приглашения, роли | owner (dispatcher — только машинисты, В-4) |
-| POST | `/partner/invitations/{token}/accept` | принять приглашение | приглашённый |
+| GET/POST | `/partner/members` · PATCH/DELETE `/partner/members/{id}` · POST `/partner/members/{id}/block` · `/detach` | сотрудники, приглашения, блокировка, отвязка | owner, manager (Р-2); роль manager выдаёт/отзывает только owner (Р-11) |
+| GET | `/partner/invitations` · POST `/partner/invitations/{id}/accept` · `/decline` | приглашения пользователя в компании | приглашённый (Р-14) |
+| POST | `/partner/memberships/{orgId}/leave` | машинист прекращает сотрудничество (П-11) | operator |
 
 **Автопарк**
 
@@ -399,22 +422,31 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 | POST | `/partner/offers/{id}/accept` | принять (Idempotency-Key) | owner, dispatcher |
 | POST | `/partner/offers/{id}/skip` | пропустить | owner, dispatcher |
 | GET | `/partner/orders` · `/partner/orders/{id}` | заказы организации | owner, dispatcher |
-| POST | `/partner/orders/{id}/assign` | назначить машиниста (+ технику) | owner, dispatcher |
-| POST | `/partner/orders/{id}/cancel` | отказ после принятия (В-15) | owner, dispatcher |
+| GET | `/partner/orders/{id}/available-operators` | свободные в этот день машинисты компании (Р-6) | owner, manager, dispatcher |
+| POST | `/partner/orders/{id}/assign-operator` · `/reassign-operator` | назначить / заменить машиниста (Р-6, Р-8) | owner, manager, dispatcher |
+| GET | `/partner/orders/{id}/replacement-units` · POST `/replace-unit` | замена техники из парка (Р-3) | owner, manager, dispatcher |
+| POST | `/partner/orders/{id}/release` | «не можем выполнить» → возврат в поиск (Р-3, Р-16) | owner, manager, dispatcher |
+| POST | `/partner/orders/{id}/cancel` | отказ после принятия (В-15) | owner, manager, dispatcher |
+
+Поля цены в ответах `/partner/orders` для `dispatcher` есть только в заказах, которыми он управляет (Р-1).
 
 **Машинист**
 
 | Метод | Путь |
 |---|---|
 | GET | `/partner/operator/orders` · `/partner/operator/orders/{id}` — только назначенные |
-| POST | `/partner/operator/orders/{id}/status` — `en_route` / `arrived` / `in_progress` / `finished` (только разрешённые переходы) |
-| POST | `/partner/operator/orders/{id}/locations` — пачка координат (принимаются только при активном заказе и только от назначенного машиниста) |
+| POST | `/partner/operator/orders/{id}/status-events` — пачка офлайн-событий `{client_event_id, status, device_recorded_at, point? / location_unavailable_reason}` (Р-18) |
+| POST | `/partner/operator/orders/{id}/decline` — отказ от заказа с причиной (Р-16) |
+| POST | `/partner/operator/orders/{id}/incidents` — поломка или другая проблема (Р-17) |
+| POST | `/partner/operator/locations` — пачка координат (принимаются только от назначенного машиниста в окне трекинга, П-1/П-2) |
+
+Календарь машиниста и список его заказов агрегируются по всем компаниям, при этом каждая карточка видна в контексте своей компании.
 
 **Финансы, отзывы, агент**
 
 | Метод | Путь | Роль |
 |---|---|---|
-| GET | `/partner/finance/summary` · `/accruals` · `/payouts` | owner (dispatcher — В-4) |
+| GET | `/partner/finance/summary` · `/accruals` · `/payouts` | owner, manager (диспетчеру недоступно — Р-1) |
 | GET | `/partner/reviews` · POST `/partner/reviews/{id}/complaint` | owner, dispatcher |
 | GET | `/partner/agent/codes` · `/agent/customers` · `/agent/commissions` · `/agent/payouts` | агент |
 
@@ -426,7 +458,7 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 |---|---|
 | Авторизация | `POST /admin/auth/login`, `/admin/auth/2fa` |
 | Пользователи | `GET /admin/users`, `GET /admin/users/{id}`, `POST /admin/users/{id}/block` · `/unblock` |
-| Организации | `GET /admin/organizations?status=`, `GET /{id}`, `POST /{id}/approve`, `/reject {reason}`, `/block`, `/unblock` |
+| Организации | `GET /admin/organizations?status=`, `GET /{id}`, `POST /{id}/approve`, `/reject {reason}`, `/block`, `/unblock`, `POST /{id}/transfer-ownership` (документы-основания, Р-12) |
 | Документы | `GET /admin/documents?status=`, `POST /admin/documents/{id}/approve` · `/reject` |
 | Техника | `GET /admin/units`, `POST /admin/units/{id}/approve` · `/reject` · `/force-offline` |
 | Справочники | CRUD `/admin/categories`, `/admin/categories/{id}/attributes`, `/admin/document-types`, `/admin/regions`, `/admin/cities`, `/admin/zones` |
@@ -450,7 +482,10 @@ awaiting_payment → searching ⇄ offered → accepted → awaiting_assignment 
 | `offer.new` / `offer.revoked` / `offer.expired` | диспетчеры и руководитель организации |
 | `order.status_changed` | участники заказа |
 | `order.assigned` | машинист, заказчик |
-| `order.location` | заказчик (комната заказа) |
+| `order.location` / `order.route_updated` / `order.eta` | заказчик (комната заказа); ETA только от свежей точки (Р-19–21) |
+| `order.operator_changed` / `order.unit_changed` | заказчик (Р-8, Р-3) |
+| `assignment.deadline_reminder` | диспетчеры и руководители (Р-7) |
+| `offer.taken` | остальные диспетчеры компании |
 | `chat.message` / `chat.read` | участники чата |
 | `notification.new` | пользователь |
 | `admin.order_updated` | админка (живой мониторинг) |
@@ -516,6 +551,10 @@ Push дублирует критичные события, когда прило
 ---
 
 ## 10. Вопросы к заказчику
+
+**Закрыты решениями блока 01:** В-4 (Р-1, Р-2), В-11 (Р-7), В-25 (Р-14).
+**Частично закрыты:** В-5 (замена техники — Р-3; кому адресуется оффер — П-8), В-6 (П-8), В-24 (П-13), В-26 (П-14), В-31 (П-16).
+**Новые вопросы по блоку:** П-1…П-19 в [decisions/01](decisions/01-partners-and-companies.md#противоречия-и-вопросы-по-блоку).
 
 Без ответов на В-0…В-18 нельзя начинать бизнес-модули (заказы, деньги). Остальные вопросы можно закрывать по ходу.
 
