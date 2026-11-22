@@ -6,6 +6,7 @@ import { AppException } from '../common/app-exception';
 import { DB, type Database } from '../database/database.module';
 import { equipmentSchedules } from '../database/schema';
 import { ROUTING, type RoutingProvider } from '../geo/routing.provider';
+import { PromoService } from '../finance/promo.service';
 import { SettlementService } from '../finance/settlement.service';
 import { SettingsService } from '../settings/settings.service';
 import { firstPaymentKopecks } from '../finance/split';
@@ -41,6 +42,7 @@ export class PricingService {
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
     private readonly settlement: SettlementService,
+    private readonly promo: PromoService,
   ) {}
 
   async quote(customerId: string, req: QuoteRequest, now: Date = new Date(), agentOrgId: string | null = null): Promise<QuoteResponse> {
@@ -83,9 +85,13 @@ export class PricingService {
     const rentKopecks = totalHours * rent.priceKopecks;
     const subtotal = rentKopecks + deliveryKopecks;
     const total = Math.round(subtotal / 100) * 100;
+    // Промокод (В-33): скидка от полной стоимости; плательщик ещё не выбран — проверка по телефону, по ИНН — при оформлении.
+    const promo = req.promoCode ? await this.promo.validate(this.db, req.promoCode, customerId, null) : null;
+    const discount = promo ? this.promo.discount(total, promo.percent) : 0;
+    const payable = total - discount;
     // Первый платёж: физлицо — 100%, юрлицо — 50%; плательщик выбирается при оформлении (решения 07).
-    const prepayment = firstPaymentKopecks(total, 'individual', 50);
-    const legalFirst = firstPaymentKopecks(total, 'legal', await this.settings.get('prepayment_percent'));
+    const prepayment = firstPaymentKopecks(payable, 'individual', 50);
+    const legalFirst = firstPaymentKopecks(payable, 'legal', await this.settings.get('prepayment_percent'));
     const ttl = await this.settings.get('quote_ttl_min');
     const expiresAt = new Date(now.getTime() + ttl * 60_000);
 
@@ -94,14 +100,14 @@ export class PricingService {
         customer_id, category_id, region_id, site_point, site_address, requirements, days, shifts, total_hours, urgency,
         first_start_at, last_end_at, reference_unit_id, reference_route_km, reference_route_minutes, routing_provider,
         rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
-        rent_kopecks, delivery_kopecks, subtotal_kopecks, total_kopecks, expires_at, agent_org_id
+        rent_kopecks, delivery_kopecks, subtotal_kopecks, total_kopecks, expires_at, agent_org_id, promo_code_id, discount_kopecks
       ) VALUES (
         ${customerId}, ${category.id}, ${region.id}, ST_SetSRID(ST_MakePoint(${req.site.lng}, ${req.site.lat}), 4326)::geography,
         ${req.site.address}, ${JSON.stringify(req.requirements)}::jsonb, ${JSON.stringify(req.days)}::jsonb, ${JSON.stringify(shifts)}::jsonb,
         ${totalHours}, ${urgency}, ${first.start.toISOString()}, ${last.end.toISOString()},
         ${reference.unitId}, ${routeKmTenths / 10}, ${Math.ceil(reference.durationSeconds / 60)}, ${reference.provider},
         ${rent.tariffId}, ${delivery.tariffId}, ${rent.priceKopecks}, ${delivery.priceKopecks},
-        ${rentKopecks}, ${deliveryKopecks}, ${subtotal}, ${total}, ${expiresAt.toISOString()}, ${agentOrgId}
+        ${rentKopecks}, ${deliveryKopecks}, ${subtotal}, ${total}, ${expiresAt.toISOString()}, ${agentOrgId}, ${promo?.id ?? null}, ${discount}
       ) RETURNING id`);
     const id = res.rows[0]?.id;
     if (!id) throw new Error('Расчёт не сохранён');
@@ -109,7 +115,7 @@ export class PricingService {
     return {
       id, expiresAt: expiresAt.toISOString(), urgency, region: { id: region.id, name: region.name }, totalHours, shifts,
       hourPriceKopecks: rent.priceKopecks, kmPriceKopecks: delivery.priceKopecks, deliveryKm: routeKmTenths / 10,
-      rentKopecks, deliveryKopecks, totalKopecks: total, prepaymentKopecks: prepayment, legalFirstPaymentKopecks: legalFirst,
+      rentKopecks, deliveryKopecks, totalKopecks: total, discountKopecks: discount, payableKopecks: payable, prepaymentKopecks: prepayment, legalFirstPaymentKopecks: legalFirst,
     };
   }
 

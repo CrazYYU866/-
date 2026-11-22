@@ -46,3 +46,23 @@ export const AgentOrderSchema = z.object({
   siteComment: z.string().trim().max(1000).optional(),
 });
 export const ConfirmByLinkSchema = z.object({ payer: PayerSchema });
+
+export const PromoCodeSchema = z.object({
+  code: z.string().trim().regex(/^[A-Za-z0-9_-]{3,32}$/),
+  percent: z.number().int().min(1).max(100).default(10),
+  firstOrderOnly: z.boolean().default(true),
+  validFrom: z.string().datetime({ offset: true }).nullable().optional(),
+  validTo: z.string().datetime({ offset: true }).nullable().optional(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  personalPhone: z.string().min(5).max(32).nullable().optional(),
+  description: z.string().trim().max(500).optional(),
+});
+export type PromoCodeInput = z.infer<typeof PromoCodeSchema>;
+export const UpdatePromoCodeSchema = z.object({
+  active: z.boolean().optional(),
+  validTo: z.string().datetime({ offset: true }).nullable().optional(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  description: z.string().trim().max(500).optional(),
+});
+export const InvoiceRequestSchema = z.object({ part: z.enum(['first', 'final']) });
+export const CalendarDaySchema = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), isWorking: z.boolean(), note: z.string().max(200).optional() });

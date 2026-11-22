@@ -1,10 +1,11 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { ConfirmByLinkSchema, OptionalReasonSchema, ReasonSchema, type Payer } from '@kovsh/contracts';
+import { ConfirmByLinkSchema, InvoiceRequestSchema, OptionalReasonSchema, ReasonSchema, type Payer } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrderCore } from '../orders/order-core';
 import { OrdersService } from '../orders/orders.service';
+import { InvoicesService } from './invoices.service';
 import { PaymentsService } from './payments.service';
 
 /**
@@ -18,6 +19,7 @@ export class PublicOrderController {
     private readonly orders: OrdersService,
     private readonly payments: PaymentsService,
     private readonly core: OrderCore,
+    private readonly invoices: InvoicesService,
   ) {}
 
   @Get()
@@ -47,6 +49,12 @@ export class PublicOrderController {
   async paymentsList(@Param('token') token: string) {
     const { orderId, customerId } = await this.orders.byLinkToken(token);
     return this.payments.list(customerId, orderId);
+  }
+
+  @Post('invoices')
+  async invoice(@Param('token') token: string, @Body(new ZodValidationPipe(InvoiceRequestSchema)) dto: { part: 'first' | 'final' }) {
+    const { orderId, customerId } = await this.orders.byLinkToken(token);
+    return this.invoices.issue(customerId, orderId, dto.part);
   }
 
   @Post('cancel')

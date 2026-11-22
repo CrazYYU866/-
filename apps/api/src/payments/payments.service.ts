@@ -6,6 +6,7 @@ import { ACC, LedgerService } from '../finance/ledger.service';
 import { SettlementService } from '../finance/settlement.service';
 import { AssignmentService } from '../orders/assignment.service';
 import { OrderCore } from '../orders/order-core';
+import { payableOf } from '../orders/orders.service';
 import { PAYMENT_PROVIDER, type PaymentEvent, type PaymentProvider } from './payment.provider';
 
 type PaymentRow = {
@@ -44,9 +45,9 @@ export class PaymentsService {
   ) {}
 
   /** Какую часть и сколько заказчик должен оплатить сейчас. */
-  private due(order: { status: string; payer_kind: string | null; prepayment_kopecks: string; total_kopecks: string; extra_kopecks: string; paid_kopecks: string; prepaid_at: Date | null }):
+  private due(order: { status: string; payer_kind: string | null; prepayment_kopecks: string; total_kopecks: string; extra_kopecks: string; discount_kopecks: string; paid_kopecks: string; prepaid_at: Date | null }):
     { part: 'first' | 'final' | 'extra'; amount: number } | null {
-    const remaining = Number(order.total_kopecks) + Number(order.extra_kopecks) - Number(order.paid_kopecks);
+    const remaining = payableOf(order) - Number(order.paid_kopecks);
     if (order.status === 'awaiting_prepayment' && !order.prepaid_at) return { part: 'first', amount: Number(order.prepayment_kopecks) };
     if (order.status === 'awaiting_final_payment') return remaining > 0 ? { part: 'final', amount: remaining } : null;
     // Физлицо: подтверждённые дополнительные часы оплачиваются сразу, работа при этом не останавливается (Н-28).
@@ -114,6 +115,18 @@ export class PaymentsService {
     await this.core.db.execute(sql`UPDATE payment_webhook_events SET processed_at = now() WHERE provider = ${this.provider.name} AND event_id = ${event.eventId}`);
   }
 
+  /** Оплата вне провайдера (банковский перевод по счёту — К-1): проводится так же, как онлайн-оплата. */
+  async recordExternalPayment(orderId: string, part: 'first' | 'final', amount: number, provider: string, reference: string): Promise<string> {
+    const ins = await this.core.db.execute<PaymentRow>(sql`
+      INSERT INTO payments (order_id, part, amount_kopecks, provider, provider_payment_id, idempotency_key)
+      VALUES (${orderId}, ${part}, ${amount}, ${provider}, ${reference}, ${`external:${reference}`})
+      ON CONFLICT (idempotency_key) DO NOTHING RETURNING *`);
+    const payment = ins.rows[0] ?? (await this.core.db.execute<PaymentRow>(sql`SELECT * FROM payments WHERE idempotency_key = ${`external:${reference}`}`)).rows[0];
+    if (!payment) throw new Error('Платёж не создан');
+    await this.applySucceeded(payment, provider);
+    return payment.id;
+  }
+
   private async applyEvent(event: PaymentEvent): Promise<void> {
     const res = await this.core.db.execute<PaymentRow>(sql`SELECT * FROM payments WHERE provider = ${this.provider.name} AND provider_payment_id = ${event.providerPaymentId}`);
     const payment = res.rows[0];
@@ -126,7 +139,10 @@ export class PaymentsService {
       return;
     }
     if (event.amountKopecks !== Number(payment.amount_kopecks)) throw new Error('Сумма уведомления не совпадает с платежом');
+    await this.applySucceeded(payment, this.provider.name);
+  }
 
+  private async applySucceeded(payment: PaymentRow, cashProvider: string): Promise<void> {
     let confirmFirst = false;
     let finalPaid = false;
     await this.core.db.transaction(async (tx) => {
@@ -135,7 +151,7 @@ export class PaymentsService {
       if (!upd.rows[0]) return;
       const amount = Number(payment.amount_kopecks);
       await this.ledger.post(tx, 'payment_received', `payment:${payment.id}`, order.id, [
-        { account: ACC.cash(this.provider.name), amount },
+        { account: ACC.cash(cashProvider), amount },
         { account: ACC.customer(order.id), amount: -amount },
       ], { part: payment.part });
       await tx.execute(sql`UPDATE orders SET paid_kopecks = paid_kopecks + ${amount} WHERE id = ${order.id}`);
@@ -149,7 +165,7 @@ export class PaymentsService {
         finalPaid = true;
         await this.core.jobs.cancel(`order:${order.id}:final`, tx);
         await tx.execute(sql`UPDATE customer_debts SET status = 'paid', closed_at = now() WHERE order_id = ${order.id} AND status = 'open'`);
-        if (Number(order.paid_kopecks) + amount >= Number(order.total_kopecks) + Number(order.extra_kopecks)) {
+        if (Number(order.paid_kopecks) + amount >= payableOf(order)) {
           await this.core.transition(tx, order, 'completed', { type: 'customer', id: order.customer_id }, { reason: 'Оставшаяся часть оплачена' });
         }
       }

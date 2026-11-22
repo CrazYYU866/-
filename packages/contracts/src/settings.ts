@@ -63,6 +63,16 @@ export const SETTINGS_REGISTRY = {
   quote_ttl_min: { schema: positiveInt, default: 15, source: 'С-20' },
   min_lead_time_min: { schema: positiveInt, default: 60, source: 'Л-4' },
 
+  // Реквизиты платформы для счетов (Н-23, К-1). Не утверждены — выставление счетов выключено, пока не заданы.
+  platform_legal_name: { schema: z.string().min(2), default: null, source: 'не задано' },
+  platform_inn: { schema: z.string().regex(/^(\d{10}|\d{12})$/), default: null, source: 'не задано' },
+  platform_kpp: { schema: z.string().regex(/^\d{9}$/), default: null, source: 'не задано' },
+  platform_legal_address: { schema: z.string().min(5), default: null, source: 'не задано' },
+  platform_bank_name: { schema: z.string().min(2), default: null, source: 'не задано' },
+  platform_bik: { schema: z.string().regex(/^\d{9}$/), default: null, source: 'не задано' },
+  platform_account: { schema: z.string().regex(/^\d{20}$/), default: null, source: 'не задано' },
+  platform_corr_account: { schema: z.string().regex(/^\d{20}$/), default: null, source: 'не задано' },
+
   // Хранение данных
   gps_retention_hours: { schema: positiveInt, default: 48, source: 'П-16' },
   call_recording_retention_days: { schema: positiveInt, default: 180, source: 'В-27' },

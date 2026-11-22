@@ -60,6 +60,11 @@ describe('SettingsService', () => {
     expect(after.find((s) => s.key === 'platform_commission_percent')).toMatchObject({ configured: true, isDefault: false, value: 13 });
   });
 
+  it('строка из цифр (ИНН, счёт) остаётся строкой', async () => {
+    await service.set('platform_inn', '7707083893', null);
+    await expect(service.get('platform_inn')).resolves.toBe('7707083893');
+  });
+
   it('история изменений не редактируется', async () => {
     await service.set('offer_timeout_sec', 45, null);
     await expect(pool.query('DELETE FROM platform_settings_history')).rejects.toThrow(/только добавление/);

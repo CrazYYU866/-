@@ -22,6 +22,7 @@ export const QuoteRequestSchema = z.object({
   site: GeoPointSchema.extend({ address: z.string().trim().min(3).max(500) }),
   requirements: z.record(z.string(), RequirementValueSchema).default({}),
   days: z.array(OrderDaySchema).min(1).max(31),
+  promoCode: z.string().trim().min(2).max(64).optional(),
 });
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
@@ -43,7 +44,12 @@ export interface QuoteResponse {
   deliveryKm: number;
   rentKopecks: number;
   deliveryKopecks: number;
+  /** Полная стоимость (база комиссии). */
   totalKopecks: number;
+  /** Скидка по промокоду — за счёт комиссии платформы (Н-15). */
+  discountKopecks: number;
+  /** К оплате заказчиком: полная стоимость − скидка. */
+  payableKopecks: number;
   /** Первый платёж физлица после принятия исполнителем — 100% (решения 07). */
   prepaymentKopecks: number;
   /** Первый платёж юрлица после принятия — 50%; остальное после завершения (решения 07). */

@@ -46,6 +46,8 @@ export type OrderRow = {
   payer_kind: 'individual' | 'legal' | null;
   extra_kopecks: string;
   extra_hours: number;
+  discount_kopecks: string;
+  promo_code_id: string | null;
   payer_legal_profile_id: string | null;
   paid_kopecks: string;
   refunded_kopecks: string;

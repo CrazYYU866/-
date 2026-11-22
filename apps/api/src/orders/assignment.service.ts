@@ -68,6 +68,7 @@ export class AssignmentService implements OnModuleInit {
     await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
       if (order.status !== 'awaiting_prepayment' || order.prepaid_at) return;
+      await tx.execute(sql`UPDATE invoices SET status = 'expired' WHERE order_id = ${orderId} AND part = 'first' AND status = 'issued'`);
       await this.core.releaseResources(tx, orderId, 'cancelled');
       await this.core.cancelTimers(tx, orderId);
       await this.core.transition(tx, order, 'cancelled_unpaid', { type: 'system' }, {

@@ -13,6 +13,7 @@ export interface SettleableOrder {
   partner_org_id: string | null;
   total_kopecks: string | number;
   extra_kopecks?: string | number | null;
+  discount_kopecks?: string | number | null;
   customer_delivery_kopecks: string | number;
   partner_delivery_kopecks: string | number | null;
 }
@@ -50,8 +51,11 @@ export class SettlementService {
     if (!order.partner_org_id) throw new Error('Завершённый заказ без исполнителя');
     const s = await this.split(order);
     const total = Number(order.total_kopecks) + Number(order.extra_kopecks ?? 0);
+    const discount = Number(order.discount_kopecks ?? 0);
+    // Скидка по промокоду — за счёт платформы; доход исполнителя и диспетчера считается от полной суммы (Н-15).
     const lines = [
-      { account: ACC.customer(order.id), amount: total },
+      { account: ACC.customer(order.id), amount: total - discount },
+      { account: ACC.platformPromo, amount: discount },
       { account: ACC.partner(order.partner_org_id), amount: -(total - s.commission) },
       { account: ACC.platformCommission, amount: -s.platform },
     ];
@@ -61,7 +65,7 @@ export class SettlementService {
     } else if (s.deliverySubsidy < 0) {
       lines.push({ account: ACC.partner(order.partner_org_id), amount: -s.deliverySubsidy }, { account: ACC.platformDeliverySavings, amount: s.deliverySubsidy });
     }
-    const posted = await this.ledger.post(tx, 'order_settled', `settle:${order.id}`, order.id, lines, { ...s });
+    const posted = await this.ledger.post(tx, 'order_settled', `settle:${order.id}`, order.id, lines, { ...s, discount });
     if (posted) {
       await tx.execute(sql`
         UPDATE orders SET settled_at = now(), commission_kopecks = ${s.commission}, agent_kopecks = ${s.agent}, platform_kopecks = ${s.platform},

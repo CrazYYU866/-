@@ -19,6 +19,7 @@ export const ACC = {
   platformCommission: 'platform:commission',
   platformDeliverySubsidy: 'platform:delivery_subsidy',
   platformDeliverySavings: 'platform:delivery_savings',
+  platformPromo: 'platform:promo',
 };
 
 /**

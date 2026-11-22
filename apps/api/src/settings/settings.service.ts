@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ERROR_CODES, SETTINGS_REGISTRY, type SettingKey, type SettingValue } from '@kovsh/contracts';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { AppException } from '../common/app-exception';
 import { DB, type Database } from '../database/database.module';
 import { platformSettings, platformSettingsHistory } from '../database/schema';
@@ -24,7 +24,7 @@ export class SettingsService {
   constructor(@Inject(DB) private readonly db: Database) {}
 
   async get<K extends SettingKey>(key: K): Promise<SettingValue<K>> {
-    const [row] = await this.db.select().from(platformSettings).where(eq(platformSettings.key, key));
+    const [row] = await this.readOverrides(key);
     const value = row !== undefined ? row.value : SETTINGS_REGISTRY[key].default;
     if (value === null || value === undefined) {
       throw new AppException(
@@ -38,7 +38,7 @@ export class SettingsService {
   }
 
   async list(): Promise<SettingView[]> {
-    const rows = await this.db.select().from(platformSettings);
+    const rows = await this.readOverrides();
     const overrides = new Map(rows.map((r) => [r.key, r.value]));
     return (Object.keys(SETTINGS_REGISTRY) as SettingKey[]).map((key) => {
       const def = SETTINGS_REGISTRY[key];
@@ -46,6 +46,18 @@ export class SettingsService {
       const value = has ? overrides.get(key) : def.default;
       return { key, value, isDefault: !has, configured: value !== null && value !== undefined, source: def.source };
     });
+  }
+
+  /**
+   * Значения читаются как текст и разбираются один раз: стандартное чтение jsonb повторно разбирает строку,
+   * и строка из цифр (ИНН, счёт) превращалась бы в число.
+   */
+  private async readOverrides(key?: SettingKey): Promise<{ key: string; value: unknown }[]> {
+    const rows = await this.db
+      .select({ key: platformSettings.key, raw: sql<string>`${platformSettings.value}::text` })
+      .from(platformSettings)
+      .where(key ? eq(platformSettings.key, key) : undefined);
+    return rows.map((r) => ({ key: r.key, value: JSON.parse(r.raw) as unknown }));
   }
 
   async set<K extends SettingKey>(

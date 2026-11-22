@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/commo
 import { createHash, randomBytes } from 'node:crypto';
 import { SMS_PROVIDER, type SmsProvider } from '../auth/sms/sms.provider';
 import { ERROR_CODES, toCustomerVisibleStatus, type OrderStatus, type Payer } from '@kovsh/contracts';
+import { PromoService } from '../finance/promo.service';
 import { SettlementService } from '../finance/settlement.service';
 import { firstPaymentKopecks } from '../finance/split';
 import { sql } from 'drizzle-orm';
@@ -21,6 +22,7 @@ export class OrdersService implements OnModuleInit {
     private readonly settings: SettingsService,
     private readonly settlement: SettlementService,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
+    private readonly promo: PromoService,
   ) {}
 
   onModuleInit(): void {
@@ -46,18 +48,26 @@ export class OrdersService implements OnModuleInit {
       if (quote['used_at']) throw new AppException(ERROR_CODES.CONFLICT, 'Заказ по этому расчёту уже оформлен', HttpStatus.CONFLICT);
       const fresh = await tx.execute<{ ok: boolean }>(sql`SELECT ${quote['expires_at'] as Date}::timestamptz > now() AS ok`);
       if (!fresh.rows[0]?.ok) throw new AppException(ERROR_CODES.QUOTE_EXPIRED, 'Цена устарела, пересчитайте заказ', HttpStatus.CONFLICT);
+      // Промокод перепроверяется с учётом плательщика (для юрлица — по ИНН); одновременные заказы сериализуются.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${customerId}))`);
+      if (quote['promo_code_id']) {
+        const code = await tx.execute<{ code: string }>(sql`SELECT code FROM promo_codes WHERE id = ${quote['promo_code_id'] as string}`);
+        await this.promo.validate(tx, code.rows[0]?.code as string, customerId, inn);
+      }
+      const payable = Number(quote['total_kopecks']) - Number(quote['discount_kopecks']);
       // Первый платёж: физлицо — 100%, юрлицо — 50% (решения 07).
       const percent = await this.settings.get('prepayment_percent');
-      const prepayment = firstPaymentKopecks(Number(quote['total_kopecks']), payer.kind, percent);
+      const prepayment = firstPaymentKopecks(payable, payer.kind, percent);
 
       const ins = await tx.execute<{ id: string }>(sql`
         INSERT INTO orders (customer_id, quote_id, category_id, region_id, site_point, site_address, site_comment, requirements, urgency,
           first_start_at, last_end_at, total_hours, status, rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
-          rent_kopecks, customer_delivery_kopecks, customer_delivery_km, total_kopecks, prepayment_kopecks, payer_kind, payer_legal_profile_id)
+          rent_kopecks, customer_delivery_kopecks, customer_delivery_km, total_kopecks, prepayment_kopecks, payer_kind, payer_legal_profile_id,
+          promo_code_id, discount_kopecks)
         SELECT customer_id, id, category_id, region_id, site_point, site_address, ${siteComment ?? null}, requirements, urgency,
           first_start_at, last_end_at, total_hours, 'searching', rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
           rent_kopecks, delivery_kopecks, reference_route_km, total_kopecks, ${prepayment}, ${payer.kind},
-          ${payer.kind === 'legal' ? payer.legalProfileId : null}
+          ${payer.kind === 'legal' ? payer.legalProfileId : null}, promo_code_id, discount_kopecks
         FROM quotes WHERE id = ${quoteId}
         RETURNING id`);
       const orderId = ins.rows[0]?.id as string;
@@ -145,7 +155,7 @@ export class OrdersService implements OnModuleInit {
       await this.core.jobs.cancel(`order:${orderId}:autocomplete`, tx);
       // Начисления исполнителю, диспетчеру и платформе — в момент окончательного завершения (Ф-1, Н-10).
       await this.settlement.settleCompletion(tx, order);
-      const remaining = Number(order.total_kopecks) + Number(order.extra_kopecks) - Number(order.paid_kopecks);
+      const remaining = payableOf(order) - Number(order.paid_kopecks);
       const actor = by ? { type: 'customer' as const, id: by.customerId } : { type: 'system' as const };
       const reason = by ? 'Завершение подтверждено заказчиком' : 'Автоматическое завершение через 24 часа';
       if (remaining > 0) {
@@ -236,11 +246,11 @@ export class OrdersService implements OnModuleInit {
         INSERT INTO orders (customer_id, quote_id, category_id, region_id, site_point, site_address, site_comment, requirements, urgency,
           first_start_at, last_end_at, total_hours, status, rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
           rent_kopecks, customer_delivery_kopecks, customer_delivery_km, total_kopecks, prepayment_kopecks, payer_kind,
-          agent_org_id, source, created_by_user_id, customer_link_token_hash)
+          agent_org_id, source, created_by_user_id, customer_link_token_hash, promo_code_id, discount_kopecks)
         SELECT customer_id, id, category_id, region_id, site_point, site_address, ${siteComment ?? null}, requirements, urgency,
           first_start_at, last_end_at, total_hours, 'awaiting_customer_confirmation', rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
           rent_kopecks, delivery_kopecks, reference_route_km, total_kopecks, total_kopecks, NULL,
-          ${agentOrgId}, 'agent', ${agentUserId}, ${sha256(token)}
+          ${agentOrgId}, 'agent', ${agentUserId}, ${sha256(token)}, promo_code_id, discount_kopecks
         FROM quotes WHERE id = ${quoteId} RETURNING id`);
       const orderId = ins.rows[0]?.id as string;
       await this.insertShifts(tx, orderId, quoteId);
@@ -280,7 +290,11 @@ export class OrdersService implements OnModuleInit {
       if (new Date(order.first_start_at).getTime() < Date.now() + lead * 60_000) {
         throw new AppException(ERROR_CODES.INVALID_SCHEDULE, 'Время начала работ уже слишком близко — попросите диспетчера оформить заявку заново', HttpStatus.CONFLICT);
       }
-      const prepayment = firstPaymentKopecks(Number(order.total_kopecks), payer.kind, await this.settings.get('prepayment_percent'));
+      if (order.promo_code_id) {
+        const code = await tx.execute<{ code: string }>(sql`SELECT code FROM promo_codes WHERE id = ${order.promo_code_id}`);
+        await this.promo.validate(tx, code.rows[0]?.code as string, customerId, inn, orderId);
+      }
+      const prepayment = firstPaymentKopecks(Number(order.total_kopecks) - Number(order.discount_kopecks), payer.kind, await this.settings.get('prepayment_percent'));
       await this.core.transition(tx, order, 'searching', { type: 'customer', id: customerId }, {
         reason: 'Заявка подтверждена заказчиком',
         patch: [
@@ -315,7 +329,7 @@ export class OrdersService implements OnModuleInit {
     await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
       if (order.status !== 'awaiting_final_payment') return;
-      const debt = Number(order.total_kopecks) + Number(order.extra_kopecks) - Number(order.paid_kopecks);
+      const debt = payableOf(order) - Number(order.paid_kopecks);
       if (debt <= 0) return;
       await tx.execute(sql`
         INSERT INTO customer_debts (order_id, customer_id, legal_profile_id, inn, amount_kopecks)
@@ -417,7 +431,9 @@ export class OrdersService implements OnModuleInit {
       refundedKopecks: Number(order.refunded_kopecks),
       extraHours: order.extra_hours,
       extraKopecks: Number(order.extra_kopecks),
-      remainingKopecks: Math.max(0, Number(order.total_kopecks) + Number(order.extra_kopecks) - Number(order.paid_kopecks)),
+      discountKopecks: Number(order.discount_kopecks),
+      payableKopecks: payableOf(order),
+      remainingKopecks: Math.max(0, payableOf(order) - Number(order.paid_kopecks)),
       prepaid: Boolean(order.prepaid_at),
     };
     if (audience === 'customer') return { ...base, price: customerPrice };
@@ -433,7 +449,7 @@ export class OrdersService implements OnModuleInit {
         deliveryKm: order.partner_delivery_km !== null ? Number(order.partner_delivery_km) : null,
         final: order.partner_amount_kopecks !== null,
       },
-      customerPaymentStatus: paid === 0 ? 'not_paid' : paid >= Number(order.total_kopecks) + Number(order.extra_kopecks) ? 'paid' : 'partially_paid',
+      customerPaymentStatus: paid === 0 ? 'not_paid' : paid >= payableOf(order) ? 'paid' : 'partially_paid',
     };
     return audience === 'admin' ? { ...partnerView, price: customerPrice } : partnerView;
   }
@@ -450,3 +466,7 @@ function toOperator(u: { id: string; full_name: string | null; photo_file_id: st
 }
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
+
+/** Сумма к оплате заказчиком: полная стоимость + продления − скидка. */
+export const payableOf = (o: { total_kopecks: string; extra_kopecks: string; discount_kopecks: string }) =>
+  Number(o.total_kopecks) + Number(o.extra_kopecks) - Number(o.discount_kopecks);

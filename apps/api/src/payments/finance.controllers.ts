@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Inject, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Inject, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service';
 import { normalizePhone } from '../auth/phone';
 import { SMS_PROVIDER, type SmsProvider } from '../auth/sms/sms.provider';
 import { UsersService } from '../users/users.service';
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
-import { CancellationDecisionSchema, ERROR_CODES, InviteCustomerEmployeeSchema, LegalProfileSchema, ReasonSchema, type CancellationDecision, type LegalProfileInput } from '@kovsh/contracts';
+import { CalendarDaySchema, CancellationDecisionSchema, ERROR_CODES, InviteCustomerEmployeeSchema, InvoiceRequestSchema, LegalProfileSchema, PromoCodeSchema, UpdatePromoCodeSchema, type PromoCodeInput, ReasonSchema, type CancellationDecision, type LegalProfileInput } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import type { Request } from 'express';
 import { AdminAuthGuard, AdminRoles, CurrentAdmin, type AuthAdmin } from '../admin/admin-auth.guard';
@@ -16,6 +17,7 @@ import { OrderCore } from '../orders/order-core';
 import { CurrentOrg, OrgContextGuard, OrgRoles, type OrgContext } from '../organizations/org-context.guard';
 import { isValidInn } from '../organizations/requisites';
 import { CancellationService } from './cancellation.service';
+import { InvoicesService } from './invoices.service';
 import { PaymentsService } from './payments.service';
 import { PayoutsService } from './payouts.service';
 
@@ -33,6 +35,7 @@ export class ClientFinanceController {
     private readonly core: OrderCore,
     private readonly users: UsersService,
     @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
+    private readonly invoices: InvoicesService,
   ) {}
 
   /** Организации заказчика, к которым у пользователя есть доступ (Н-30). */
@@ -135,6 +138,20 @@ export class ClientFinanceController {
     return this.payments.list(u.userId, id);
   }
 
+  @Post('orders/:id/invoices')
+  async invoice(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(InvoiceRequestSchema)) dto: { part: 'first' | 'final' }) {
+    clientOnly(u);
+    return this.invoices.issue(u.userId, id, dto.part);
+  }
+
+  @Get('orders/:id/invoices')
+  async invoicesList(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    clientOnly(u);
+    const order = await this.core.get(id);
+    if (order.customer_id !== u.userId) throw new AppException(ERROR_CODES.NOT_FOUND, 'Заказ не найден', HttpStatus.NOT_FOUND);
+    return this.invoices.list(id);
+  }
+
   @Get('debts')
   async debts(@CurrentUser() u: AuthUser) {
     clientOnly(u);
@@ -199,6 +216,9 @@ export class AdminFinanceController {
     private readonly payouts: PayoutsService,
     private readonly ledger: LedgerService,
     private readonly core: OrderCore,
+    private readonly invoices: InvoicesService,
+    private readonly users: UsersService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('cancellation-reviews')
@@ -263,6 +283,76 @@ export class AdminFinanceController {
   async debts(@Query('status') status?: string) {
     const res = await this.core.db.execute(sql`SELECT * FROM customer_debts ${status ? sql`WHERE status = ${status}` : sql``} ORDER BY created_at DESC LIMIT 500`);
     return res.rows;
+  }
+
+  @Get('invoices')
+  @AdminRoles('superadmin', 'finance')
+  async invoicesList(@Query('status') status?: string) {
+    const res = await this.core.db.execute(sql`SELECT * FROM invoices ${status ? sql`WHERE status = ${status}` : sql``} ORDER BY issued_at DESC LIMIT 500`);
+    return res.rows;
+  }
+
+  @Post('invoices/:id/mark-paid')
+  @HttpCode(HttpStatus.OK)
+  @AdminRoles('superadmin', 'finance')
+  markPaid(@CurrentAdmin() a: AuthAdmin, @Param('id', ParseUUIDPipe) id: string) {
+    return this.invoices.markPaid(id, a);
+  }
+
+  @Get('promo-codes')
+  async promoCodes() {
+    const res = await this.core.db.execute(sql`
+      SELECT p.*, (SELECT count(*)::int FROM orders o WHERE o.promo_code_id = p.id AND o.status IN ('completed', 'awaiting_final_payment')) AS used,
+             (SELECT count(*)::int FROM orders o WHERE o.promo_code_id = p.id AND o.status NOT IN ('completed', 'awaiting_final_payment', 'cancelled', 'cancelled_unpaid', 'search_failed', 'refund_pending')) AS reserved
+      FROM promo_codes p ORDER BY p.created_at DESC`);
+    return res.rows;
+  }
+
+  /** Промокоды — в админке (В-33): срок действия, число использований, персональные коды. */
+  @Post('promo-codes')
+  @AdminRoles('superadmin')
+  async createPromo(@CurrentAdmin() a: AuthAdmin, @Body(new ZodValidationPipe(PromoCodeSchema)) dto: PromoCodeInput) {
+    const personal = dto.personalPhone ? (await this.users.findOrCreateByPhone(normalizePhone(dto.personalPhone))).user.id : null;
+    const res = await this.core.db.execute<{ id: string }>(sql`
+      INSERT INTO promo_codes (code, percent, first_order_only, valid_from, valid_to, max_uses, personal_user_id, description, created_by)
+      VALUES (${dto.code}, ${dto.percent}, ${dto.firstOrderOnly}, ${dto.validFrom ?? null}, ${dto.validTo ?? null}, ${dto.maxUses ?? null}, ${personal}, ${dto.description ?? null}, ${a.adminId})
+      ON CONFLICT (code) DO NOTHING RETURNING *`);
+    if (!res.rows[0]) throw new AppException(ERROR_CODES.CONFLICT, 'Такой промокод уже есть', HttpStatus.CONFLICT);
+    await this.audit.log({ adminId: a.adminId, action: 'promo.create', entity: 'promo_code', entityId: res.rows[0].id, after: res.rows[0], ip: a.ip });
+    return res.rows[0];
+  }
+
+  @Patch('promo-codes/:id')
+  @AdminRoles('superadmin')
+  async updatePromo(@CurrentAdmin() a: AuthAdmin, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(UpdatePromoCodeSchema)) dto: { active?: boolean; validTo?: string | null; maxUses?: number | null; description?: string }) {
+    const sets = [
+      ...(dto.active !== undefined ? [sql`active = ${dto.active}`] : []),
+      ...(dto.validTo !== undefined ? [sql`valid_to = ${dto.validTo}`] : []),
+      ...(dto.maxUses !== undefined ? [sql`max_uses = ${dto.maxUses}`] : []),
+      ...(dto.description !== undefined ? [sql`description = ${dto.description}`] : []),
+    ];
+    if (sets.length === 0) throw new AppException(ERROR_CODES.VALIDATION_FAILED, 'Нечего менять', HttpStatus.BAD_REQUEST);
+    const res = await this.core.db.execute(sql`UPDATE promo_codes SET ${sql.join(sets, sql`, `)} WHERE id = ${id} RETURNING *`);
+    if (!res.rows[0]) throw new AppException(ERROR_CODES.NOT_FOUND, 'Промокод не найден', HttpStatus.NOT_FOUND);
+    await this.audit.log({ adminId: a.adminId, action: 'promo.update', entity: 'promo_code', entityId: id, after: res.rows[0], ip: a.ip });
+    return res.rows[0];
+  }
+
+  @Get('business-calendar')
+  async calendar() {
+    const res = await this.core.db.execute(sql`SELECT to_char(day, 'YYYY-MM-DD') AS day, is_working, note FROM business_calendar ORDER BY day`);
+    return res.rows;
+  }
+
+  /** Праздники и переносы (К-1): исключения из правила «сб и вс — выходные». */
+  @Post('business-calendar')
+  @AdminRoles('superadmin')
+  async setCalendarDay(@CurrentAdmin() a: AuthAdmin, @Body(new ZodValidationPipe(CalendarDaySchema)) dto: { day: string; isWorking: boolean; note?: string }) {
+    await this.core.db.execute(sql`
+      INSERT INTO business_calendar (day, is_working, note) VALUES (${dto.day}::date, ${dto.isWorking}, ${dto.note ?? null})
+      ON CONFLICT (day) DO UPDATE SET is_working = EXCLUDED.is_working, note = EXCLUDED.note`);
+    await this.audit.log({ adminId: a.adminId, action: 'calendar.set', entity: 'business_calendar', entityId: dto.day, after: dto, ip: a.ip });
+    return dto;
   }
 
   @Get('finance/summary')

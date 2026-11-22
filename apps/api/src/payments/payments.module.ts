@@ -7,6 +7,7 @@ import { CancellationService } from './cancellation.service';
 import { DevPaymentProvider } from './dev-payment.provider';
 import { AdminFinanceController, ClientFinanceController, DevPaymentsController, PartnerFinanceController, PaymentWebhooksController } from './finance.controllers';
 import { PAYMENT_PROVIDER } from './payment.provider';
+import { InvoicesService } from './invoices.service';
 import { PaymentsService } from './payments.service';
 import { PublicOrderController } from './public-order.controller';
 import { PayoutsService } from './payouts.service';
@@ -18,6 +19,7 @@ import { PayoutsService } from './payouts.service';
     PaymentsService,
     CancellationService,
     PayoutsService,
+    InvoicesService,
     {
       provide: PAYMENT_PROVIDER,
       inject: [APP_ENV],
