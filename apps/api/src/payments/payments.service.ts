@@ -142,8 +142,8 @@ export class PaymentsService {
       if (payment.part === 'first') {
         if (order.status === 'awaiting_prepayment') confirmFirst = true;
         else {
-          // Деньги пришли, когда заказ уже отменён (например, истекли 10 минут) — решение по возврату за поддержкой (07).
-          await this.settlement.openCancellationReview(tx, order.id, 'system', 'Оплата поступила после отмены заказа');
+          // Деньги пришли, когда заказ уже отменён (например, истекли 10 минут на оплату) — автоматический полный возврат (Н-31).
+          await this.core.jobs.schedule('auto_refund', { orderId: order.id }, new Date(), { dedupeKey: `order:${order.id}:auto_refund`, tx });
         }
       } else if (payment.part === 'final' && order.status === 'awaiting_final_payment') {
         finalPaid = true;

@@ -181,6 +181,22 @@ describe('Н-27…Н-30: организации заказчиков, автов
     expect((await pool.query('SELECT amount_kopecks FROM customer_debts WHERE order_id = $1', [id])).rows[0].amount_kopecks).toBe('250000');
   });
 
+  it('заявка диспетчера не подтверждена вовремя — отменяется сама, диспетчер уведомлён (Н-32)', async () => {
+    await partner();
+    const agent = await org('agent');
+    const q = await t.http().post('/api/v1/partner/agent/quotes').set(inOrg(agent.owner, agent.orgId))
+      .send({ customerPhone: phone(), categoryId: catId, site: SITE, days: DAY() }).expect(201);
+    const { id } = (await t.http().post('/api/v1/partner/agent/orders').set(inOrg(agent.owner, agent.orgId)).send({ quoteId: q.body.id }).expect(201)).body;
+    const job = await pool.query("SELECT run_at FROM scheduled_jobs WHERE status = 'pending' AND type = 'agent_confirmation_deadline' AND payload->>'orderId' = $1", [id]);
+    const o0 = await order(id);
+    expect(new Date(o0.first_start_at).getTime() - new Date(job.rows[0].run_at).getTime()).toBe(60 * 60_000);
+    await pool.query("UPDATE scheduled_jobs SET run_at = now() - interval '1 second' WHERE id IN (SELECT id FROM scheduled_jobs WHERE status = 'pending' AND type = 'agent_confirmation_deadline' AND payload->>'orderId' = $1)", [id]);
+    await jobs.runDue();
+    expect((await order(id)).status).toBe('cancelled');
+    const notice = await pool.query("SELECT user_ids FROM domain_events WHERE order_id = $1 AND type = 'order.agent_request_expired'", [id]);
+    expect(notice.rows[0].user_ids).toContain(agent.ownerId);
+  });
+
   it('заказ независимого диспетчера: SMS-ссылка → подтверждение заказчиком → поиск; платит заказчик; диспетчеру 7% (Н-27)', async () => {
     const p = await partner();
     const agent = await org('agent');

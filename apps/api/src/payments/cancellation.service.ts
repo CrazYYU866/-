@@ -40,16 +40,22 @@ export class CancellationService implements OnModuleInit {
   }
 
   /**
-   * Исполнитель не найден или не найдена замена — автоматический возврат 100% оплаченного,
-   * без подтверждения поддержкой (Н-29). Повторно не выполняется (ключи возвратов по платежам).
+   * Автоматический полный возврат без поддержки (повторно не выполняется — ключи возвратов по платежам):
+   * — исполнитель или замена не найдены после оплаты (Н-29);
+   * — оплата пришла, когда заказ уже был отменён без оплаты, например истекли 10 минут (Н-31).
+   * Если по заказу уже есть решение поддержки об отмене, автоматического возврата нет.
    */
   async autoRefund(orderId: string): Promise<void> {
     await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
-      if (order.status !== 'refund_pending') return;
+      const review = await tx.execute(sql`SELECT 1 FROM cancellation_reviews WHERE order_id = ${orderId}`);
+      const lateAfterCancel = ['cancelled_unpaid', 'cancelled', 'search_failed'].includes(order.status) && !review.rows[0];
+      if (order.status !== 'refund_pending' && !lateAfterCancel) return;
       const refundable = Number(order.paid_kopecks) - Number(order.refunded_kopecks);
-      await this.history(tx, orderId, 'Автоматический возврат: исполнитель не найден', null, { refund: refundable });
-      await this.execute(tx, orderId, 0, refundable, 'Исполнитель не найден — полный возврат', null, null);
+      if (refundable <= 0) return;
+      const reason = order.status === 'refund_pending' ? 'Исполнитель не найден — полный возврат' : 'Оплата поступила после отмены заказа — полный возврат';
+      await this.history(tx, orderId, `Автоматический возврат: ${reason}`, null, { refund: refundable });
+      await this.execute(tx, orderId, 0, refundable, reason, null, null);
     });
   }
 

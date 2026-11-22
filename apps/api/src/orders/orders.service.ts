@@ -26,6 +26,7 @@ export class OrdersService implements OnModuleInit {
   onModuleInit(): void {
     this.core.jobs.register('auto_complete', (p) => this.autoComplete(String(p['orderId'])));
     this.core.jobs.register('final_payment_deadline', (p) => this.finalPaymentDeadline(String(p['orderId'])));
+    this.core.jobs.register('agent_confirmation_deadline', (p) => this.agentConfirmationDeadline(String(p['orderId'])));
   }
 
   /** Оформление заказа из расчёта: цена берётся из расчёта без изменений и сразу запускается поиск (Н-1, Н-16). */
@@ -246,6 +247,10 @@ export class OrdersService implements OnModuleInit {
       await tx.execute(sql`UPDATE quotes SET used_at = now() WHERE id = ${quoteId}`);
       await tx.execute(sql`INSERT INTO order_status_history (order_id, from_status, to_status, actor_type, actor_id, reason)
         VALUES (${orderId}, NULL, 'awaiting_customer_confirmation', 'partner', ${agentUserId}, 'Заявка независимого диспетчера')`);
+      // Подтвердить можно, пока до начала работ больше минимального срока подачи; потом заявка отменяется сама (Н-32).
+      const lead = await this.settings.get('min_lead_time_min');
+      const deadline = new Date(new Date(quote['first_start_at'] as Date).getTime() - lead * 60_000);
+      await this.core.jobs.schedule('agent_confirmation_deadline', { orderId }, deadline, { dedupeKey: `order:${orderId}:confirm`, tx });
       const phone = await tx.execute<{ phone: string }>(sql`SELECT phone FROM users WHERE id = ${quote['customer_id'] as string}`);
       return { id: orderId, customerPhone: phone.rows[0]?.phone as string };
     });
@@ -283,10 +288,25 @@ export class OrdersService implements OnModuleInit {
           sql`prepayment_kopecks = ${prepayment}`, sql`customer_confirmed_at = now()`,
         ],
       });
+      await this.core.jobs.cancel(`order:${orderId}:confirm`, tx);
       await this.matching.startSearch(tx as never, order);
       if (order.agent_org_id) {
         await this.core.events.emit({ type: 'order.customer_confirmed', orderId, orgId: order.agent_org_id, userIds: await this.core.partnerStaff(order.agent_org_id, tx) }, tx);
       }
+    });
+  }
+
+  /** Заказчик не подтвердил заявку диспетчера вовремя — заявка отменяется, диспетчер получает уведомление (Н-32). */
+  async agentConfirmationDeadline(orderId: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const order = await this.core.lock(tx, orderId);
+      if (order.status !== 'awaiting_customer_confirmation') return;
+      await this.core.transition(tx, order, 'cancelled', { type: 'system' }, {
+        reason: 'Заказчик не подтвердил заявку вовремя',
+        patch: [sql`cancelled_at = now()`, sql`cancelled_by = 'system'`, sql`cancellation_reason = 'Заказчик не подтвердил заявку'`],
+      });
+      const staff = order.agent_org_id ? await this.core.partnerStaff(order.agent_org_id, tx) : [];
+      await this.core.events.emit({ type: 'order.agent_request_expired', orderId, orgId: order.agent_org_id, userIds: [...staff, order.customer_id] }, tx);
     });
   }
 

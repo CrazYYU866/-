@@ -265,7 +265,7 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect(Number((await order(o2.orderId)).refunded_kopecks)).toBe(0);
   });
 
-  it('оплата, пришедшая после отмены по тайм-ауту, уходит на решение поддержки', async () => {
+  it('оплата, пришедшая после отмены по тайм-ауту, возвращается автоматически (Н-31)', async () => {
     const co = await company(10);
     const cust = await customerWith('individual');
     const { orderId } = await placeAndAccept(cust, co);
@@ -274,7 +274,13 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     await jobs.runDue();
     expect((await order(orderId)).status).toBe('cancelled_unpaid');
     await t.http().post(`/api/v1/dev/payments/${String(p.body.confirmationUrl).split('/').pop()}/succeed`).expect(200);
-    expect((await pool.query('SELECT initiated_by, status FROM cancellation_reviews WHERE order_id = $1', [orderId])).rows[0]).toEqual({ initiated_by: 'system', status: 'pending' });
+    await jobs.runDue();
+    const o = await order(orderId);
+    expect(o.status).toBe('cancelled_unpaid');
+    expect(Number(o.refunded_kopecks)).toBe(Number(o.paid_kopecks));
+    expect(Number(o.paid_kopecks)).toBeGreaterThan(0);
+    expect((await pool.query('SELECT count(*)::int AS n FROM cancellation_reviews WHERE order_id = $1', [orderId])).rows[0].n).toBe(0);
+    expect(await balance(`customer:${orderId}`)).toBe(0);
   });
 
   it('выплата на следующий день: один раз; без реквизитов — не создаётся (Н-10)', async () => {
