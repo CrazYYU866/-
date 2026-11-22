@@ -222,8 +222,8 @@ export class MatchingService implements OnModuleInit {
       await this.core.transition(tx, order, to, { type: 'system' }, {
         reason: 'Исполнитель не найден', patch: [sql`cancelled_at = now()`, sql`cancelled_by = 'system'`, sql`cancellation_reason = 'Исполнитель не найден'`],
       });
-      // Деньги не возвращаются автоматически — решение принимает поддержка (07, вопрос Н-29).
-      if (order.prepaid_at) await this.settlement.openCancellationReview(tx, orderId, 'system', 'Исполнитель не найден');
+      // Исполнитель или замена не найдены — заказчику автоматически возвращается 100% оплаченного (Н-29).
+      if (order.prepaid_at) await this.core.jobs.schedule('auto_refund', { orderId }, new Date(), { dedupeKey: `order:${orderId}:auto_refund`, tx });
       await this.core.events.emit({ type: 'order.search_failed', orderId, userIds: [order.customer_id], payload: { refund: Boolean(order.prepaid_at) } }, tx);
     });
   }

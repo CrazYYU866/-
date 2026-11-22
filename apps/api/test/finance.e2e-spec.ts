@@ -71,7 +71,7 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     const c = await t.login(phone(), 'client');
     let payer: Record<string, unknown> = { kind: 'individual' };
     if (kind === 'legal') {
-      const lp = await t.http().post('/api/v1/client/legal-profiles').set(bearer(c.token))
+      const lp = await t.http().post('/api/v1/client/organizations').set(bearer(c.token))
         .send({ inn: innLegal(innSeq++), name: 'ООО Заказчик', legalAddress: 'Москва, 2', email: 'buh@client.ru' }).expect(201);
       payer = { kind: 'legal', legalProfileId: lp.body.id };
     }

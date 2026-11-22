@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CreateOrderSchema, ERROR_CODES, OptionalReasonSchema, ReasonSchema, type CreateOrder } from '@kovsh/contracts';
+import { ConfirmByLinkSchema, CreateOrderSchema, ERROR_CODES, OptionalReasonSchema, ReasonSchema, type CreateOrder, type Payer } from '@kovsh/contracts';
 import { CurrentUser, type AuthUser } from '../auth/current-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppException } from '../common/app-exception';
@@ -55,6 +55,34 @@ export class ClientOrdersController {
   async confirm(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
     clientOnly(u);
     await this.orders.confirmCompletion(u.userId, id);
+  }
+
+  @Get(':id/extensions')
+  async extensions(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    clientOnly(u);
+    await this.orders.viewForCustomer(u.userId, id);
+    return this.orders.extensions(id);
+  }
+
+  @Post(':id/extensions/:extId/approve')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async approveExt(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) ext: string): Promise<void> {
+    clientOnly(u);
+    await this.orders.decideExtension(u.userId, id, ext, true);
+  }
+
+  @Post(':id/extensions/:extId/reject')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async rejectExt(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('extId', ParseUUIDPipe) ext: string): Promise<void> {
+    clientOnly(u);
+    await this.orders.decideExtension(u.userId, id, ext, false);
+  }
+
+  @Post(':id/confirm')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async confirmAgentOrder(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(ConfirmByLinkSchema)) dto: { payer: Payer }): Promise<void> {
+    clientOnly(u);
+    await this.orders.confirmByCustomer(u.userId, id, dto.payer);
   }
 
   @Post(':id/dispute')

@@ -1,6 +1,9 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Inject, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { normalizePhone } from '../auth/phone';
+import { SMS_PROVIDER, type SmsProvider } from '../auth/sms/sms.provider';
+import { UsersService } from '../users/users.service';
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
-import { CancellationDecisionSchema, ERROR_CODES, LegalProfileSchema, ReasonSchema, type CancellationDecision, type LegalProfileInput } from '@kovsh/contracts';
+import { CancellationDecisionSchema, ERROR_CODES, InviteCustomerEmployeeSchema, LegalProfileSchema, ReasonSchema, type CancellationDecision, type LegalProfileInput } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import type { Request } from 'express';
 import { AdminAuthGuard, AdminRoles, CurrentAdmin, type AuthAdmin } from '../admin/admin-auth.guard';
@@ -25,32 +28,99 @@ const clientOnly = (u: AuthUser) => {
 @UseGuards(JwtAuthGuard)
 @Controller('client')
 export class ClientFinanceController {
-  constructor(private readonly payments: PaymentsService, private readonly core: OrderCore) {}
+  constructor(
+    private readonly payments: PaymentsService,
+    private readonly core: OrderCore,
+    private readonly users: UsersService,
+    @Inject(SMS_PROVIDER) private readonly sms: SmsProvider,
+  ) {}
 
-  @Get('legal-profiles')
-  async legalProfiles(@CurrentUser() u: AuthUser) {
+  /** Организации заказчика, к которым у пользователя есть доступ (Н-30). */
+  @Get('organizations')
+  async organizations(@CurrentUser() u: AuthUser) {
     clientOnly(u);
-    const res = await this.core.db.execute(sql`SELECT id, inn, kpp, name, legal_address, email FROM customer_legal_profiles WHERE user_id = ${u.userId} AND archived_at IS NULL ORDER BY created_at`);
+    const res = await this.core.db.execute(sql`
+      SELECT p.id, p.inn, p.kpp, p.name, p.legal_address, p.email, m.role
+      FROM customer_org_members m JOIN customer_legal_profiles p ON p.id = m.profile_id
+      WHERE m.user_id = ${u.userId} AND m.status = 'active' AND p.archived_at IS NULL ORDER BY p.name`);
     return res.rows;
   }
 
-  @Post('legal-profiles')
-  async addLegalProfile(@CurrentUser() u: AuthUser, @Body(new ZodValidationPipe(LegalProfileSchema)) dto: LegalProfileInput) {
+  /** Добавить организацию: создатель становится руководителем. Один ИНН — одна организация (Н-30). */
+  @Post('organizations')
+  async addOrganization(@CurrentUser() u: AuthUser, @Body(new ZodValidationPipe(LegalProfileSchema)) dto: LegalProfileInput) {
     clientOnly(u);
     if (!isValidInn(dto.inn)) throw new AppException(ERROR_CODES.INVALID_INN, 'Проверьте ИНН', HttpStatus.BAD_REQUEST);
-    const res = await this.core.db.execute(sql`
-      INSERT INTO customer_legal_profiles (user_id, inn, kpp, name, legal_address, email)
-      VALUES (${u.userId}, ${dto.inn}, ${dto.kpp ?? null}, ${dto.name}, ${dto.legalAddress}, ${dto.email})
-      ON CONFLICT DO NOTHING RETURNING id, inn, kpp, name, legal_address, email`);
-    if (!res.rows[0]) throw new AppException(ERROR_CODES.CONFLICT, 'Это юрлицо уже добавлено', HttpStatus.CONFLICT);
-    return res.rows[0];
+    return this.core.db.transaction(async (tx) => {
+      const res = await tx.execute<{ id: string }>(sql`
+        INSERT INTO customer_legal_profiles (user_id, inn, kpp, name, legal_address, email)
+        VALUES (${u.userId}, ${dto.inn}, ${dto.kpp ?? null}, ${dto.name}, ${dto.legalAddress}, ${dto.email})
+        ON CONFLICT DO NOTHING RETURNING id`);
+      const id = res.rows[0]?.id;
+      if (!id) {
+        throw new AppException(ERROR_CODES.CUSTOMER_ORG_EXISTS, 'Организация с этим ИНН уже добавлена — попросите её руководителя пригласить вас', HttpStatus.CONFLICT);
+      }
+      await tx.execute(sql`INSERT INTO customer_org_members (profile_id, user_id, role, status) VALUES (${id}, ${u.userId}, 'owner', 'active')`);
+      return { id, inn: dto.inn, kpp: dto.kpp ?? null, name: dto.name, legal_address: dto.legalAddress, email: dto.email, role: 'owner' };
+    });
   }
 
-  @Delete('legal-profiles/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async removeLegalProfile(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  @Get('organizations/:id/members')
+  async members(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     clientOnly(u);
-    await this.core.db.execute(sql`UPDATE customer_legal_profiles SET archived_at = now() WHERE id = ${id} AND user_id = ${u.userId}`);
+    await this.assertCustomerOrgOwner(u.userId, id);
+    const res = await this.core.db.execute(sql`
+      SELECT m.id, m.role, m.status, u.phone, u.full_name FROM customer_org_members m JOIN users u ON u.id = m.user_id
+      WHERE m.profile_id = ${id} AND m.status <> 'removed' ORDER BY m.created_at`);
+    return res.rows;
+  }
+
+  /** Руководитель приглашает сотрудника по телефону и даёт доступ к оформлению заказов от имени организации. */
+  @Post('organizations/:id/members')
+  async invite(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(InviteCustomerEmployeeSchema)) dto: { phone: string }) {
+    clientOnly(u);
+    const org = await this.assertCustomerOrgOwner(u.userId, id);
+    const { user } = await this.users.findOrCreateByPhone(normalizePhone(dto.phone));
+    const res = await this.core.db.execute<{ id: string }>(sql`
+      INSERT INTO customer_org_members (profile_id, user_id, role, status, invited_by) VALUES (${id}, ${user.id}, 'employee', 'invited', ${u.userId})
+      ON CONFLICT (profile_id, user_id) DO UPDATE SET status = 'invited', updated_at = now() WHERE customer_org_members.status = 'removed'
+      RETURNING id`);
+    if (!res.rows[0]) throw new AppException(ERROR_CODES.CONFLICT, 'Этот человек уже есть в организации', HttpStatus.CONFLICT);
+    await this.sms.send(user.phone, `Вас пригласили оформлять заказы от имени «${org.name}» в приложении «Ковш на Час».`);
+    return { id: res.rows[0].id, status: 'invited' };
+  }
+
+  @Delete('organizations/:id/members/:memberId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeMember(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('memberId', ParseUUIDPipe) memberId: string): Promise<void> {
+    clientOnly(u);
+    await this.assertCustomerOrgOwner(u.userId, id);
+    await this.core.db.execute(sql`UPDATE customer_org_members SET status = 'removed', updated_at = now() WHERE id = ${memberId} AND profile_id = ${id} AND role <> 'owner'`);
+  }
+
+  @Get('organization-invitations')
+  async invitations(@CurrentUser() u: AuthUser) {
+    clientOnly(u);
+    const res = await this.core.db.execute(sql`
+      SELECT m.id, p.name, p.inn FROM customer_org_members m JOIN customer_legal_profiles p ON p.id = m.profile_id
+      WHERE m.user_id = ${u.userId} AND m.status = 'invited'`);
+    return res.rows;
+  }
+
+  @Post('organization-invitations/:id/accept')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async acceptInvitation(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    clientOnly(u);
+    const res = await this.core.db.execute(sql`UPDATE customer_org_members SET status = 'active', updated_at = now() WHERE id = ${id} AND user_id = ${u.userId} AND status = 'invited' RETURNING id`);
+    if (!res.rows[0]) throw new AppException(ERROR_CODES.NOT_FOUND, 'Приглашение не найдено', HttpStatus.NOT_FOUND);
+  }
+
+  private async assertCustomerOrgOwner(userId: string, profileId: string): Promise<{ name: string }> {
+    const res = await this.core.db.execute<{ name: string }>(sql`
+      SELECT p.name FROM customer_org_members m JOIN customer_legal_profiles p ON p.id = m.profile_id
+      WHERE m.profile_id = ${profileId} AND m.user_id = ${userId} AND m.role = 'owner' AND m.status = 'active'`);
+    if (!res.rows[0]) throw new AppException(ERROR_CODES.NOT_FOUND, 'Организация не найдена', HttpStatus.NOT_FOUND);
+    return res.rows[0];
   }
 
   @Post('orders/:id/payments')

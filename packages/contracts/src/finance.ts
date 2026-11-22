@@ -27,10 +27,22 @@ export type CancellationDecision = z.infer<typeof CancellationDecisionSchema>;
 
 export interface PaymentView {
   id: string;
-  part: 'first' | 'final';
+  part: 'first' | 'final' | 'extra';
   amountKopecks: number;
   status: 'pending' | 'succeeded' | 'cancelled' | 'failed';
   confirmationUrl: string | null;
   createdAt: string;
   paidAt: string | null;
 }
+
+/** Организация заказчика (Н-30): создаёт руководитель, сотрудников он приглашает по телефону. */
+export const CustomerOrgSchema = LegalProfileSchema;
+export const InviteCustomerEmployeeSchema = z.object({ phone: z.string().min(5).max(32) });
+export const RequestExtensionSchema = z.object({ hours: z.number().int().positive().max(24) });
+
+/** Заявка независимого диспетчера за фактического заказчика (Н-27). */
+export const AgentOrderSchema = z.object({
+  quoteId: z.string().uuid(),
+  siteComment: z.string().trim().max(1000).optional(),
+});
+export const ConfirmByLinkSchema = z.object({ payer: PayerSchema });

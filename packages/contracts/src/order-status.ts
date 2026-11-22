@@ -3,6 +3,7 @@
  * Схема переходов будет зафиксирована в модуле заказов (этап 6).
  */
 export const ORDER_STATUSES = [
+  'awaiting_customer_confirmation',
   'searching',
   'offered',
   'search_failed',
@@ -28,6 +29,7 @@ export const CUSTOMER_VISIBLE_STATUSES = ['new', 'in_progress', 'completed', 'ca
 export type CustomerVisibleStatus = (typeof CUSTOMER_VISIBLE_STATUSES)[number];
 
 const VISIBLE: Record<OrderStatus, CustomerVisibleStatus> = {
+  awaiting_customer_confirmation: 'new',
   searching: 'new',
   offered: 'new',
   search_failed: 'cancelled',

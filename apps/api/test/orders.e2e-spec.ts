@@ -357,7 +357,7 @@ describe('Этап 6: заказы и распределение', () => {
     expect((await pool.query('SELECT count(*)::int AS n FROM refunds WHERE order_id = $1', [paid])).rows[0].n).toBe(0);
   });
 
-  it('срок поиска истёк: без предоплаты — «не найден», с предоплатой — к возврату (К-2, К-8)', async () => {
+  it('срок поиска истёк: без оплаты — «не найден», после оплаты — автоматический полный возврат (К-2, Н-29)', async () => {
     const a = await company(5);
     const id = await order();
     await fire('search_deadline', id);
@@ -369,8 +369,11 @@ describe('Этап 6: заказы и распределение', () => {
     await t.http().post(`/api/v1/partner/orders/${id2}/release`).set(inOrg(a.owner, a.orgId)).send({ reason: 'Сломалась техника' }).expect(204);
     await jobs.runDue();
     await fire('search_deadline', id2);
-    expect(await status(id2)).toBe('refund_pending');
-    expect((await pool.query("SELECT initiated_by FROM cancellation_reviews WHERE order_id = $1", [id2])).rows[0].initiated_by).toBe('system');
+    // Исполнитель не найден после оплаты — автоматический полный возврат (Н-29).
+    await jobs.runDue();
+    expect(await status(id2)).toBe('cancelled');
+    const o2 = (await pool.query('SELECT paid_kopecks, refunded_kopecks FROM orders WHERE id = $1', [id2])).rows[0];
+    expect(o2.refunded_kopecks).toBe(o2.paid_kopecks);
   });
 
   it('автозавершение через 24 часа; открытый спор его останавливает (Н-19)', async () => {

@@ -12,6 +12,7 @@ export interface SettleableOrder {
   agent_org_id: string | null;
   partner_org_id: string | null;
   total_kopecks: string | number;
+  extra_kopecks?: string | number | null;
   customer_delivery_kopecks: string | number;
   partner_delivery_kopecks: string | number | null;
 }
@@ -31,7 +32,8 @@ export class SettlementService {
     ]);
     const customerDelivery = Number(order.customer_delivery_kopecks);
     return completionSplit({
-      totalKopecks: Number(order.total_kopecks),
+      // Сумма заказа включает подтверждённые дополнительные часы (Н-5, Н-28) — комиссия считается от полной суммы (Ф-1).
+      totalKopecks: Number(order.total_kopecks) + Number(order.extra_kopecks ?? 0),
       commissionPercent,
       agentPercent,
       hasAgent: Boolean(order.agent_org_id),
@@ -47,7 +49,7 @@ export class SettlementService {
   async settleCompletion(tx: Executor, order: SettleableOrder): Promise<CompletionSplit> {
     if (!order.partner_org_id) throw new Error('Завершённый заказ без исполнителя');
     const s = await this.split(order);
-    const total = Number(order.total_kopecks);
+    const total = Number(order.total_kopecks) + Number(order.extra_kopecks ?? 0);
     const lines = [
       { account: ACC.customer(order.id), amount: total },
       { account: ACC.partner(order.partner_org_id), amount: -(total - s.commission) },

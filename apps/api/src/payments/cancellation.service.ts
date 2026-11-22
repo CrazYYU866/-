@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import { ERROR_CODES } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import type { AuthAdmin } from '../admin/admin-auth.guard';
@@ -26,7 +26,7 @@ type ReviewRow = {
  * Удержанное делится по Ф-3. Возврат сверх лимита поддержки (К-14, по сумме возвратов заказа — Л-9) подтверждает финансист или суперадмин.
  */
 @Injectable()
-export class CancellationService {
+export class CancellationService implements OnModuleInit {
   constructor(
     private readonly core: OrderCore,
     private readonly ledger: LedgerService,
@@ -34,6 +34,24 @@ export class CancellationService {
     private readonly audit: AuditService,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
   ) {}
+
+  onModuleInit(): void {
+    this.core.jobs.register('auto_refund', (p) => this.autoRefund(String(p['orderId'])));
+  }
+
+  /**
+   * Исполнитель не найден или не найдена замена — автоматический возврат 100% оплаченного,
+   * без подтверждения поддержкой (Н-29). Повторно не выполняется (ключи возвратов по платежам).
+   */
+  async autoRefund(orderId: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const order = await this.core.lock(tx, orderId);
+      if (order.status !== 'refund_pending') return;
+      const refundable = Number(order.paid_kopecks) - Number(order.refunded_kopecks);
+      await this.history(tx, orderId, 'Автоматический возврат: исполнитель не найден', null, { refund: refundable });
+      await this.execute(tx, orderId, 0, refundable, 'Исполнитель не найден — полный возврат', null, null);
+    });
+  }
 
   async list(status?: string) {
     const res = await this.core.db.execute(sql`
@@ -94,7 +112,7 @@ export class CancellationService {
   }
 
   /** Проводки удержания (Ф-3) и возврат через провайдера. Каждая операция — по своему ключу, повтор невозможен. */
-  private async execute(tx: Tx, orderId: string, retained: number, refund: number, reason: string, requestedBy: string | null, approvedBy: string): Promise<void> {
+  private async execute(tx: Tx, orderId: string, retained: number, refund: number, reason: string, requestedBy: string | null, approvedBy: string | null): Promise<void> {
     const order = await this.core.lock(tx, orderId);
     if (retained > 0) {
       if (!order.partner_org_id) {
@@ -145,7 +163,7 @@ export class CancellationService {
       }
     }
     if (order.status === 'refund_pending') {
-      await this.core.transition(tx, order, 'cancelled', { type: 'admin', id: approvedBy }, { reason: 'Решение по возврату исполнено' });
+      await this.core.transition(tx, order, 'cancelled', approvedBy ? { type: 'admin', id: approvedBy } : { type: 'system' }, { reason: 'Возврат выполнен' });
     }
     await this.core.events.emit({ type: 'order.cancellation_decided', orderId, userIds: [order.customer_id], payload: { retained, refund } }, tx);
   }

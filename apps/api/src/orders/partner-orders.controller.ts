@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
-import { AssignOperatorSchema, ERROR_CODES, ReasonSchema, ReplaceUnitSchema, ReportIncidentSchema, StatusEventsSchema, type AssignOperator, type ReportIncident, type StatusEvents } from '@kovsh/contracts';
+import { AssignOperatorSchema, ERROR_CODES, RequestExtensionSchema, ReasonSchema, ReplaceUnitSchema, ReportIncidentSchema, StatusEventsSchema, type AssignOperator, type ReportIncident, type StatusEvents } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import { CurrentUser, type AuthUser } from '../auth/current-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -138,6 +138,12 @@ export class OperatorController {
   async decline(@CurrentOrg() org: OrgContext, @CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(ReasonSchema)) dto: { reason: string }): Promise<void> {
     this.assertOperator(org);
     await this.assignment.operatorDecline(org, u.userId, id, dto.reason);
+  }
+
+  @Post('orders/:id/extensions')
+  async extension(@CurrentOrg() org: OrgContext, @CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(RequestExtensionSchema)) dto: { hours: number }) {
+    this.assertOperator(org);
+    return this.operator.requestExtension(org, u.userId, id, dto.hours);
   }
 
   @Post('orders/:id/incidents')

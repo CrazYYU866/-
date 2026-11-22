@@ -8,11 +8,12 @@ import { DevPaymentProvider } from './dev-payment.provider';
 import { AdminFinanceController, ClientFinanceController, DevPaymentsController, PartnerFinanceController, PaymentWebhooksController } from './finance.controllers';
 import { PAYMENT_PROVIDER } from './payment.provider';
 import { PaymentsService } from './payments.service';
+import { PublicOrderController } from './public-order.controller';
 import { PayoutsService } from './payouts.service';
 
 @Module({
   imports: [OrdersModule, OrganizationsModule],
-  controllers: [ClientFinanceController, PaymentWebhooksController, DevPaymentsController, AdminFinanceController, PartnerFinanceController],
+  controllers: [PublicOrderController, ClientFinanceController, PaymentWebhooksController, DevPaymentsController, AdminFinanceController, PartnerFinanceController],
   providers: [
     PaymentsService,
     CancellationService,

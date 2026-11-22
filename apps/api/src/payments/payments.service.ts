@@ -11,7 +11,7 @@ import { PAYMENT_PROVIDER, type PaymentEvent, type PaymentProvider } from './pay
 type PaymentRow = {
   id: string;
   order_id: string;
-  part: 'first' | 'final';
+  part: 'first' | 'final' | 'extra';
   amount_kopecks: string;
   provider: string;
   provider_payment_id: string | null;
@@ -44,13 +44,14 @@ export class PaymentsService {
   ) {}
 
   /** Какую часть и сколько заказчик должен оплатить сейчас. */
-  private due(order: { status: string; prepayment_kopecks: string; total_kopecks: string; paid_kopecks: string; prepaid_at: Date | null }):
-    { part: 'first' | 'final'; amount: number } | null {
+  private due(order: { status: string; payer_kind: string | null; prepayment_kopecks: string; total_kopecks: string; extra_kopecks: string; paid_kopecks: string; prepaid_at: Date | null }):
+    { part: 'first' | 'final' | 'extra'; amount: number } | null {
+    const remaining = Number(order.total_kopecks) + Number(order.extra_kopecks) - Number(order.paid_kopecks);
     if (order.status === 'awaiting_prepayment' && !order.prepaid_at) return { part: 'first', amount: Number(order.prepayment_kopecks) };
-    if (order.status === 'awaiting_final_payment') {
-      const remaining = Number(order.total_kopecks) - Number(order.paid_kopecks);
-      return remaining > 0 ? { part: 'final', amount: remaining } : null;
-    }
+    if (order.status === 'awaiting_final_payment') return remaining > 0 ? { part: 'final', amount: remaining } : null;
+    // Физлицо: подтверждённые дополнительные часы оплачиваются сразу, работа при этом не останавливается (Н-28).
+    const working = ['awaiting_assignment', 'assigned', 'en_route', 'arrived', 'in_progress', 'awaiting_completion_confirmation'];
+    if (order.payer_kind === 'individual' && order.prepaid_at && working.includes(order.status) && remaining > 0) return { part: 'extra', amount: remaining };
     return null;
   }
 
@@ -62,8 +63,12 @@ export class PaymentsService {
     if (!due) throw new AppException(ERROR_CODES.PAYMENT_NOT_DUE, 'Сейчас по заказу ничего не нужно оплачивать', HttpStatus.CONFLICT);
 
     const existing = await this.core.db.execute<PaymentRow>(sql`
-      SELECT * FROM payments WHERE order_id = ${orderId} AND part = ${due.part} AND status = 'pending' AND amount_kopecks = ${due.amount}`);
-    if (existing.rows[0]) return toView(existing.rows[0]);
+      SELECT * FROM payments WHERE order_id = ${orderId} AND part = ${due.part} AND status = 'pending'`);
+    if (existing.rows[0]) {
+      if (Number(existing.rows[0].amount_kopecks) === due.amount) return toView(existing.rows[0]);
+      // Сумма изменилась (подтверждено ещё одно продление) — старый неоплаченный счёт заменяется новым.
+      await this.core.db.execute(sql`UPDATE payments SET status = 'cancelled' WHERE id = ${existing.rows[0].id} AND status = 'pending'`);
+    }
 
     const key = `pay:${orderId}:${due.part}:${due.amount}:${Date.now()}`;
     const inserted = await this.core.db.execute<PaymentRow>(sql`
@@ -79,7 +84,7 @@ export class PaymentsService {
     }
     const created = await this.provider.createPayment({
       amountKopecks: due.amount,
-      description: `Заказ №${order.number}: ${due.part === 'first' ? 'оплата' : 'оставшаяся часть'}`,
+      description: `Заказ №${order.number}: ${due.part === 'first' ? 'оплата' : due.part === 'extra' ? 'дополнительные часы' : 'оставшаяся часть'}`,
       idempotencyKey: key,
       metadata: { orderId, paymentId: row.id, part: due.part },
     });
@@ -140,11 +145,13 @@ export class PaymentsService {
           // Деньги пришли, когда заказ уже отменён (например, истекли 10 минут) — решение по возврату за поддержкой (07).
           await this.settlement.openCancellationReview(tx, order.id, 'system', 'Оплата поступила после отмены заказа');
         }
-      } else if (order.status === 'awaiting_final_payment') {
+      } else if (payment.part === 'final' && order.status === 'awaiting_final_payment') {
         finalPaid = true;
         await this.core.jobs.cancel(`order:${order.id}:final`, tx);
         await tx.execute(sql`UPDATE customer_debts SET status = 'paid', closed_at = now() WHERE order_id = ${order.id} AND status = 'open'`);
-        await this.core.transition(tx, order, 'completed', { type: 'customer', id: order.customer_id }, { reason: 'Оставшаяся часть оплачена' });
+        if (Number(order.paid_kopecks) + amount >= Number(order.total_kopecks) + Number(order.extra_kopecks)) {
+          await this.core.transition(tx, order, 'completed', { type: 'customer', id: order.customer_id }, { reason: 'Оставшаяся часть оплачена' });
+        }
       }
       await this.core.events.emit({ type: 'payment.succeeded', orderId: order.id, userIds: [order.customer_id], payload: { part: payment.part, amountKopecks: amount } }, tx);
     });

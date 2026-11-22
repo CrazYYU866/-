@@ -43,7 +43,7 @@ export class PricingService {
     private readonly settlement: SettlementService,
   ) {}
 
-  async quote(customerId: string, req: QuoteRequest, now: Date = new Date()): Promise<QuoteResponse> {
+  async quote(customerId: string, req: QuoteRequest, now: Date = new Date(), agentOrgId: string | null = null): Promise<QuoteResponse> {
     if (await this.settlement.hasOpenDebt(this.db, customerId)) {
       throw err(ERROR_CODES.DEBT_EXISTS, 'Погасите задолженность по предыдущему заказу', HttpStatus.CONFLICT);
     }
@@ -94,14 +94,14 @@ export class PricingService {
         customer_id, category_id, region_id, site_point, site_address, requirements, days, shifts, total_hours, urgency,
         first_start_at, last_end_at, reference_unit_id, reference_route_km, reference_route_minutes, routing_provider,
         rent_tariff_id, delivery_tariff_id, hour_price_kopecks, km_price_kopecks,
-        rent_kopecks, delivery_kopecks, subtotal_kopecks, total_kopecks, expires_at
+        rent_kopecks, delivery_kopecks, subtotal_kopecks, total_kopecks, expires_at, agent_org_id
       ) VALUES (
         ${customerId}, ${category.id}, ${region.id}, ST_SetSRID(ST_MakePoint(${req.site.lng}, ${req.site.lat}), 4326)::geography,
         ${req.site.address}, ${JSON.stringify(req.requirements)}::jsonb, ${JSON.stringify(req.days)}::jsonb, ${JSON.stringify(shifts)}::jsonb,
         ${totalHours}, ${urgency}, ${first.start.toISOString()}, ${last.end.toISOString()},
         ${reference.unitId}, ${routeKmTenths / 10}, ${Math.ceil(reference.durationSeconds / 60)}, ${reference.provider},
         ${rent.tariffId}, ${delivery.tariffId}, ${rent.priceKopecks}, ${delivery.priceKopecks},
-        ${rentKopecks}, ${deliveryKopecks}, ${subtotal}, ${total}, ${expiresAt.toISOString()}
+        ${rentKopecks}, ${deliveryKopecks}, ${subtotal}, ${total}, ${expiresAt.toISOString()}, ${agentOrgId}
       ) RETURNING id`);
     const id = res.rows[0]?.id;
     if (!id) throw new Error('Расчёт не сохранён');

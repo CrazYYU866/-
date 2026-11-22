@@ -49,3 +49,7 @@ export interface QuoteResponse {
   /** Первый платёж юрлица после принятия — 50%; остальное после завершения (решения 07). */
   legalFirstPaymentKopecks: number;
 }
+
+/** Расчёт для заявки независимого диспетчера: тот же расчёт + телефон фактического заказчика (Н-27). */
+export const AgentQuoteRequestSchema = QuoteRequestSchema.extend({ customerPhone: z.string().min(5).max(32) });
+export type AgentQuoteRequest = z.infer<typeof AgentQuoteRequestSchema>;

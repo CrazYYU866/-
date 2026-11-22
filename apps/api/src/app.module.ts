@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { AdminModule } from './admin/admin.module';
+import { AgentModule } from './agent/agent.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { EquipmentModule } from './equipment/equipment.module';
@@ -54,6 +55,7 @@ const env = loadEnv();
     FinanceCoreModule,
     OrdersModule,
     PaymentsModule,
+    AgentModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

@@ -43,7 +43,9 @@ export type OrderRow = {
   search_round: number;
   prepaid_at: Date | null;
   timezone: string;
-  payer_kind: 'individual' | 'legal';
+  payer_kind: 'individual' | 'legal' | null;
+  extra_kopecks: string;
+  extra_hours: number;
   payer_legal_profile_id: string | null;
   paid_kopecks: string;
   refunded_kopecks: string;
@@ -67,6 +69,7 @@ export type Actor = { type: 'customer' | 'partner' | 'operator' | 'system' | 'ad
 
 /** Допустимые переходы статусов заказа (ТЗ §11 + решения 02–04). */
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  awaiting_customer_confirmation: ['searching', 'cancelled'],
   searching: ['offered', 'search_failed', 'refund_pending', 'cancelled'],
   offered: ['searching', 'awaiting_prepayment', 'awaiting_assignment', 'search_failed', 'refund_pending', 'cancelled'],
   search_failed: [],

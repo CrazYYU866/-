@@ -112,6 +112,24 @@ export class OperatorService {
     return results;
   }
 
+  /** «Запросить дополнительное время» (Н-5): только во время работы; стоимость — по почасовому тарифу заказа. */
+  async requestExtension(org: OrgContext, userId: string, orderId: string, hours: number): Promise<{ id: string; amountKopecks: number }> {
+    return this.core.db.transaction(async (tx) => {
+      const order = await this.core.lock(tx, orderId);
+      if (order.partner_org_id !== org.orgId) throw new AppException(ERROR_CODES.NOT_FOUND, 'Заказ не найден', HttpStatus.NOT_FOUND);
+      const shift = (await this.core.shifts(orderId, tx)).find((s) => s.operator_user_id === userId && s.status === 'in_progress');
+      if (!shift) throw new AppException(ERROR_CODES.ORDER_STATUS_CONFLICT, 'Продление можно запросить во время работы', HttpStatus.CONFLICT);
+      const amount = hours * Number(order.hour_price_kopecks);
+      const res = await tx.execute<{ id: string }>(sql`
+        INSERT INTO order_extensions (order_id, shift_id, hours, amount_kopecks, requested_by) VALUES (${orderId}, ${shift.id}, ${hours}, ${amount}, ${userId})
+        ON CONFLICT DO NOTHING RETURNING id`);
+      const id = res.rows[0]?.id;
+      if (!id) throw new AppException(ERROR_CODES.CONFLICT, 'Предыдущий запрос ещё не рассмотрен заказчиком', HttpStatus.CONFLICT);
+      await this.core.events.emit({ type: 'order.extension_requested', orderId, userIds: [order.customer_id], payload: { extensionId: id, hours, amountKopecks: amount } }, tx);
+      return { id, amountKopecks: amount };
+    });
+  }
+
   /** «Сообщить о поломке или проблеме» (Р-17): уведомление диспетчерам; при поломке компания организует замену (Р-3). */
   async reportIncident(org: OrgContext, userId: string, orderId: string, dto: ReportIncident): Promise<{ id: string }> {
     await this.assertAssigned(org, userId, orderId);
