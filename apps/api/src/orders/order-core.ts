@@ -180,6 +180,25 @@ export class OrderCore {
     return res.rows.map((r) => r.operator_user_id);
   }
 
+  /**
+   * Кем пользователь приходится заказу: заказчик, назначенный машинист, сотрудник компании-исполнителя
+   * (руководитель или диспетчер). Используется для доступа к чату, звонкам и GPS.
+   */
+  async participant(orderId: string, userId: string): Promise<{ order: OrderRow; customer: boolean; operator: boolean; staffRole: 'owner' | 'manager' | 'dispatcher' | null }> {
+    const order = await this.get(orderId);
+    const customer = order.customer_id === userId;
+    const ops = await this.operatorsOf(orderId);
+    const operator = ops.includes(userId);
+    let staffRole: 'owner' | 'manager' | 'dispatcher' | null = null;
+    if (order.partner_org_id) {
+      const res = await this.db.execute<{ role: 'owner' | 'manager' | 'dispatcher' }>(sql`
+        SELECT role FROM organization_members WHERE org_id = ${order.partner_org_id} AND user_id = ${userId} AND status = 'active'
+          AND role IN ('owner', 'manager', 'dispatcher')`);
+      staffRole = res.rows[0]?.role ?? null;
+    }
+    return { order, customer, operator, staffRole };
+  }
+
   async partnerIncident(tx: Tx, orgId: string, orderId: string | null, type: string, meta?: Record<string, unknown>): Promise<void> {
     await tx.execute(sql`INSERT INTO partner_incidents (org_id, order_id, type, meta) VALUES (${orgId}, ${orderId}, ${type}, ${meta ? JSON.stringify(meta) : null}::jsonb)`);
   }

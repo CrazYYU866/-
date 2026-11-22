@@ -73,6 +73,11 @@ export const SETTINGS_REGISTRY = {
   platform_account: { schema: z.string().regex(/^\d{20}$/), default: null, source: 'не задано' },
   platform_corr_account: { schema: z.string().regex(/^\d{20}$/), default: null, source: 'не задано' },
 
+  /** Через сколько секунд без новых координат показывать «нет связи с техникой» и не показывать ETA (Р-19–21). */
+  tracking_stale_sec: { schema: positiveInt, default: 180, source: 'техническое' },
+  /** Сколько минут действует выданный подменный номер. */
+  call_number_ttl_min: { schema: positiveInt, default: 30, source: 'техническое' },
+
   // Хранение данных
   gps_retention_hours: { schema: positiveInt, default: 48, source: 'П-16' },
   call_recording_retention_days: { schema: positiveInt, default: 180, source: 'В-27' },

@@ -6,6 +6,7 @@ import { AdminModule } from './admin/admin.module';
 import { AgentModule } from './agent/agent.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { CommsModule } from './comms/comms.module';
 import { EquipmentModule } from './equipment/equipment.module';
 import { FinanceCoreModule } from './finance/finance-core.module';
 import { GeoModule } from './geo/geo.module';
@@ -56,6 +57,7 @@ const env = loadEnv();
     OrdersModule,
     PaymentsModule,
     AgentModule,
+    CommsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

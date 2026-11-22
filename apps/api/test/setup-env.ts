@@ -12,3 +12,5 @@ process.env.STORAGE_DRIVER = 'local';
 process.env.STORAGE_LOCAL_DIR = require('node:path').join(require('node:os').tmpdir(), 'kovsh-test-storage');
 process.env.ROUTING_PROVIDER = 'dev';
 process.env.PAYMENT_PROVIDER = 'dev';
+process.env.PUSH_PROVIDER = 'dev';
+process.env.TELEPHONY_PROVIDER = 'dev';

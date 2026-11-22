@@ -37,6 +37,10 @@ const EnvSchema = z.object({
   JOBS_AUTORUN: envBool(true),
   /** Платёжный провайдер: dev — тестовые оплаты без денег; yookassa — после договора (В-34). */
   PAYMENT_PROVIDER: z.enum(['dev']).default('dev'),
+  /** Push: dev — запись в лог; expo — после подключения (ТЗ §16). */
+  PUSH_PROVIDER: z.enum(['dev']).default('dev'),
+  /** Подменные номера: dev — условный номер без звонка; провайдер выбирается (В-35). */
+  TELEPHONY_PROVIDER: z.enum(['dev']).default('dev'),
   /** Внешний адрес API (ссылки оплаты, SMS-ссылки). */
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
@@ -47,6 +51,9 @@ const EnvSchema = z.object({
   }
   if (env.NODE_ENV === 'production' && env.ROUTING_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['ROUTING_PROVIDER'], message: 'тестовая маршрутизация запрещена в production' });
+  }
+  if (env.NODE_ENV === 'production' && (env.PUSH_PROVIDER === 'dev' || env.TELEPHONY_PROVIDER === 'dev')) {
+    ctx.addIssue({ code: 'custom', path: ['TELEPHONY_PROVIDER'], message: 'тестовые push и телефония запрещены в production' });
   }
   if (env.NODE_ENV === 'production' && env.PAYMENT_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['PAYMENT_PROVIDER'], message: 'тестовые платежи запрещены в production' });

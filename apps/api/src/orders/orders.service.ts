@@ -392,8 +392,10 @@ export class OrdersService implements OnModuleInit {
       : null;
     const operatorIds = [...new Set(shifts.map((s) => s.operator_user_id).filter((x): x is string => Boolean(x)))];
     const operators = operatorIds.length
-      ? (await this.core.db.execute<{ id: string; full_name: string | null; photo_file_id: string | null }>(sql`
-          SELECT id, full_name, photo_file_id FROM users WHERE id IN (${sql.join(operatorIds.map((i) => sql`${i}`), sql`, `)})`)).rows
+      ? (await this.core.db.execute<{ id: string; full_name: string | null; photo_file_id: string | null; rating: number | null }>(sql`
+          SELECT u.id, u.full_name, u.photo_file_id,
+            (SELECT round(avg(stars)::numeric, 2)::float FROM ratings r WHERE r.target_user_id = u.id AND r.target_kind = 'operator' AND r.status = 'visible') AS rating
+          FROM users u WHERE u.id IN (${sql.join(operatorIds.map((i) => sql`${i}`), sql`, `)})`)).rows
       : [];
     const history = await this.core.db.execute<{ to_status: string; from_status: string | null; reason: string | null; actor_type: string; created_at: Date; device_recorded_at: Date | null }>(sql`
       SELECT to_status, from_status, reason, actor_type, created_at, device_recorded_at FROM order_status_history WHERE order_id = ${order.id} ORDER BY id`);
@@ -461,8 +463,9 @@ export class OrdersService implements OnModuleInit {
   }
 }
 
-function toOperator(u: { id: string; full_name: string | null; photo_file_id: string | null } | undefined) {
-  return u ? { userId: u.id, fullName: u.full_name, photoFileId: u.photo_file_id, rating: null as number | null } : null;
+/** Заказчик видит ФИО, фото и рейтинг назначенного машиниста (ТЗ §4, В-30). */
+function toOperator(u: { id: string; full_name: string | null; photo_file_id: string | null; rating: number | null } | undefined) {
+  return u ? { userId: u.id, fullName: u.full_name, photoFileId: u.photo_file_id, rating: u.rating } : null;
 }
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');

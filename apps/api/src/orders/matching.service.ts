@@ -345,9 +345,20 @@ export class MatchingService implements OnModuleInit {
       .sort((a, b) => b.score - a.score || a.distance_m - b.distance_m);
   }
 
-  /** Средний рейтинг машинистов компании, доступных в день заказа (К-5). Оценки появятся с модулем отзывов. */
-  private async orgOperatorRating(_tx: Tx, _orgId: string, _date: string | undefined): Promise<number | null> {
-    return null;
+  /**
+   * Средний рейтинг машинистов компании, доступных в день заказа (К-5); у ИП-одиночки — его собственный.
+   * Машинисты без оценок не учитываются; если оценок нет ни у кого — фактор нейтральный (В-7, С-27). Шкала 0…1.
+   */
+  private async orgOperatorRating(tx: Tx, orgId: string, date: string | undefined): Promise<number | null> {
+    const res = await tx.execute<{ avg: number | null }>(sql`
+      SELECT avg(op_avg)::float AS avg FROM (
+        SELECT avg(r.stars) AS op_avg FROM organization_members m
+        JOIN ratings r ON r.target_user_id = m.user_id AND r.target_kind = 'operator' AND r.status = 'visible'
+        WHERE m.org_id = ${orgId} AND m.status = 'active' AND m.can_operate AND m.operator_verification = 'approved'
+          ${date ? sql`AND NOT EXISTS (SELECT 1 FROM operator_day_assignments d WHERE d.user_id = m.user_id AND d.work_date = ${date}::date AND d.status = 'active')` : sql``}
+        GROUP BY m.user_id) t`);
+    const avg = res.rows[0]?.avg;
+    return avg === null || avg === undefined ? null : avg / 5;
   }
 
   /** Надёжность за 90 дней: доля принятых предложений минус отказы после принятия (К-7). Меньше 3 предложений — нет данных. */
