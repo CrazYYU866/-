@@ -25,6 +25,8 @@ export interface AdminTokenPayload {
   sid: string;
   role: AdminRole;
   typ: 'admin';
+  /** Включена ли 2FA. Пока нет — доступны только подключение 2FA, профиль и выход (С-9). */
+  totpEnabled?: boolean;
 }
 
 export interface AdminTokens {
@@ -32,6 +34,8 @@ export interface AdminTokens {
   refreshToken: string;
   accessTokenExpiresIn: number;
   admin: { id: string; email: string; fullName: string; role: AdminRole; totpEnabled: boolean };
+  /** Нужно подключить двухфакторную авторизацию, прежде чем работать (С-9). */
+  mustEnrollTotp: boolean;
 }
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -122,13 +126,13 @@ export class AdminAuthService {
     }
     if (payload.typ !== 'admin') return null;
     const [row] = await this.db
-      .select({ role: adminUsers.role, status: adminUsers.status, revokedAt: adminSessions.revokedAt, expiresAt: adminSessions.expiresAt })
+      .select({ role: adminUsers.role, status: adminUsers.status, totpEnabled: adminUsers.totpEnabled, revokedAt: adminSessions.revokedAt, expiresAt: adminSessions.expiresAt })
       .from(adminSessions)
       .innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminId))
       .where(and(eq(adminSessions.id, payload.sid), eq(adminSessions.adminId, payload.sub)));
     if (!row || row.status !== 'active' || row.revokedAt || row.expiresAt.getTime() <= Date.now()) return null;
     // Роль берётся из БД: смена роли действует сразу, без перевыпуска токена.
-    return { ...payload, role: row.role };
+    return { ...payload, role: row.role, totpEnabled: row.totpEnabled };
   }
 
   async setupTotp(adminId: string): Promise<{ otpauthUrl: string; secret: string }> {
@@ -168,6 +172,7 @@ export class AdminAuthService {
       refreshToken,
       accessTokenExpiresIn: ACCESS_TTL_SEC,
       admin: { id: admin.id, email: admin.email, fullName: admin.fullName, role: admin.role, totpEnabled: admin.totpEnabled },
+      mustEnrollTotp: !admin.totpEnabled,
     };
   }
 }

@@ -45,7 +45,7 @@ import { DB, type Database } from '../database/database.module';
 import { adminAuditLog, adminUsers } from '../database/schema';
 import { FilesService } from '../files/files.service';
 import { SettingsService } from '../settings/settings.service';
-import { AdminAuthGuard, AdminRoles, CurrentAdmin, type AuthAdmin } from './admin-auth.guard';
+import { AdminAuthGuard, AdminRoles, AllowWithoutTotp, CurrentAdmin, type AuthAdmin } from './admin-auth.guard';
 import { AdminAuthService } from './admin-auth.service';
 import { ModerationService } from './moderation.service';
 
@@ -75,6 +75,7 @@ export class AdminAuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()
   @UseGuards(AdminAuthGuard)
+  @AllowWithoutTotp()
   async logout(@CurrentAdmin() admin: AuthAdmin): Promise<void> {
     await this.auth.logout(admin.sessionId);
   }
@@ -82,6 +83,7 @@ export class AdminAuthController {
   @Get('me')
   @ApiBearerAuth()
   @UseGuards(AdminAuthGuard)
+  @AllowWithoutTotp()
   async me(@CurrentAdmin() admin: AuthAdmin) {
     const [a] = await this.db.select().from(adminUsers).where(eq(adminUsers.id, admin.adminId));
     if (!a) throw new AppException(ERROR_CODES.NOT_FOUND, 'Не найден', HttpStatus.NOT_FOUND);
@@ -91,6 +93,7 @@ export class AdminAuthController {
   @Post('2fa/setup')
   @ApiBearerAuth()
   @UseGuards(AdminAuthGuard)
+  @AllowWithoutTotp()
   setup2fa(@CurrentAdmin() admin: AuthAdmin) {
     return this.auth.setupTotp(admin.adminId);
   }
@@ -99,6 +102,7 @@ export class AdminAuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()
   @UseGuards(AdminAuthGuard)
+  @AllowWithoutTotp()
   async confirm2fa(@CurrentAdmin() admin: AuthAdmin, @Body(new ZodValidationPipe(TotpConfirmSchema)) dto: { code: string }): Promise<void> {
     await this.auth.confirmTotp(admin.adminId, dto.code);
   }

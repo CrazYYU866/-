@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { authenticator } from 'otplib';
 import type { Pool } from 'pg';
+import { AdminAuthService } from '../src/admin/admin-auth.service';
 import { createApp } from '../src/app.factory';
 import { REDIS } from '../src/redis/redis.module';
 import { resetTestDatabase } from './db';
@@ -391,15 +392,25 @@ describe('Этап 3: организации, сотрудники, докуме
       await t.http().post(`/api/v1/admin/users/${victim.userId}/unblock`).set(bearer(support)).expect(200);
     });
 
-    it('вход администратора: неверный пароль, 2FA', async () => {
-      const token = await t.adminLogin('twofa@kovsh.test', 'superadmin');
-      await t.http().post('/api/v1/admin/auth/login').send({ email: 'twofa@kovsh.test', password: 'wrong-password' }).expect(401);
-      const setup = await t.http().post('/api/v1/admin/auth/2fa/setup').set(bearer(token)).expect(201);
-      await t.http().post('/api/v1/admin/auth/2fa/confirm').set(bearer(token)).send({ code: authenticator.generate(setup.body.secret) }).expect(204);
-      const noCode = await t.http().post('/api/v1/admin/auth/login').send({ email: 'twofa@kovsh.test', password: 'very-strong-password-123' }).expect(401);
+    it('вход администратора: неверный пароль; 2FA обязательна и без неё работать нельзя (С-9)', async () => {
+      await app.get(AdminAuthService).createAdmin({ email: 'new@kovsh.test', fullName: 'Новый', role: 'moderator', password: 'very-strong-password-123' }, null);
+      await t.http().post('/api/v1/admin/auth/login').send({ email: 'new@kovsh.test', password: 'wrong-password' }).expect(401);
+      const first = await t.http().post('/api/v1/admin/auth/login').send({ email: 'new@kovsh.test', password: 'very-strong-password-123' }).expect(200);
+      expect(first.body.mustEnrollTotp).toBe(true);
+      const blocked = await t.http().get('/api/v1/admin/organizations').set(bearer(first.body.accessToken)).expect(403);
+      expect(blocked.body.code).toBe('TOTP_ENROLLMENT_REQUIRED');
+      await t.http().get('/api/v1/admin/auth/me').set(bearer(first.body.accessToken)).expect(200);
+
+      const setup = await t.http().post('/api/v1/admin/auth/2fa/setup').set(bearer(first.body.accessToken)).expect(201);
+      await t.http().post('/api/v1/admin/auth/2fa/confirm').set(bearer(first.body.accessToken)).send({ code: authenticator.generate(setup.body.secret) }).expect(204);
+      await t.http().get('/api/v1/admin/organizations').set(bearer(first.body.accessToken)).expect(200);
+      await t.http().post('/api/v1/admin/auth/2fa/setup').set(bearer(first.body.accessToken)).expect(409);
+
+      const noCode = await t.http().post('/api/v1/admin/auth/login').send({ email: 'new@kovsh.test', password: 'very-strong-password-123' }).expect(401);
       expect(noCode.body.code).toBe('TOTP_REQUIRED');
-      await t.http().post('/api/v1/admin/auth/login')
-        .send({ email: 'twofa@kovsh.test', password: 'very-strong-password-123', totpCode: authenticator.generate(setup.body.secret) }).expect(200);
+      const ok = await t.http().post('/api/v1/admin/auth/login')
+        .send({ email: 'new@kovsh.test', password: 'very-strong-password-123', totpCode: authenticator.generate(setup.body.secret) }).expect(200);
+      expect(ok.body.mustEnrollTotp).toBe(false);
     });
 
     it('токен приложения не подходит для админки и наоборот', async () => {

@@ -141,14 +141,19 @@ export class PricingService {
   }
 
   private async validateTiming(intervals: Interval[], hours: number[], now: Date): Promise<void> {
-    const [minHours, step, leadMin, horizonDays] = await Promise.all([
+    const [minHours, minMultiday, step, leadMin, horizonDays] = await Promise.all([
       this.settings.get('min_order_hours'),
+      this.settings.get('min_multiday_day_hours'),
       this.settings.get('order_hour_step'),
       this.settings.get('min_lead_time_min'),
       this.settings.get('max_booking_horizon_days'),
     ]);
-    // Минимум 4 часа — для каждого выбранного дня (М-1, предложение разработки; ждёт подтверждения).
-    if (hours.some((h) => h < minHours)) throw err(ERROR_CODES.INVALID_SCHEDULE, `Минимальная смена — ${minHours} ч`, HttpStatus.BAD_REQUEST);
+    // Однодневный заказ — минимум 4 часа; многодневный — минимум 8 часов каждый день (М-1, С-19).
+    const multiDay = hours.length > 1;
+    const min = multiDay ? minMultiday : minHours;
+    if (hours.some((h) => h < min)) {
+      throw err(ERROR_CODES.INVALID_SCHEDULE, multiDay ? `В многодневном заказе каждый день — не меньше ${min} ч` : `Минимальная смена — ${min} ч`, HttpStatus.BAD_REQUEST);
+    }
     if (hours.some((h) => h % step !== 0)) throw err(ERROR_CODES.INVALID_SCHEDULE, `Длительность кратна ${step} ч`, HttpStatus.BAD_REQUEST);
     const first = intervals[0] as Interval;
     if (first.start.getTime() < now.getTime() + leadMin * 60_000) {
@@ -202,7 +207,7 @@ export class PricingService {
   ): Promise<{ unitId: string; distanceMeters: number; durationSeconds: number; provider: string } | null> {
     const maxKm = await this.settings.get('search_radius_max_km');
     const sitePoint = sql`ST_SetSRID(ST_MakePoint(${site.lng}, ${site.lat}), 4326)::geography`;
-    const noOverlap = intervals.map(
+    const noOverlap = reservationPeriods(intervals).map(
       (i) => sql`NOT EXISTS (SELECT 1 FROM unit_bookings b WHERE b.unit_id = u.id AND b.status = 'active'
         AND b.period && tstzrange(${i.start.toISOString()}, ${i.end.toISOString()}))`,
     );
@@ -260,4 +265,15 @@ export function splitIntoShifts(intervals: Interval[], maxShiftHours: number): Q
     }
   }
   return shifts;
+}
+
+/**
+ * Период резервирования техники: весь заказ от начала первой смены до конца последней,
+ * включая ночи и перерывы между сменами (М-2, С-22).
+ */
+export function reservationPeriods(intervals: Interval[]): Interval[] {
+  if (intervals.length === 0) return [];
+  const start = Math.min(...intervals.map((i) => i.start.getTime()));
+  const end = Math.max(...intervals.map((i) => i.end.getTime()));
+  return [{ start: new Date(start), end: new Date(end) }];
 }

@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { authenticator } from 'otplib';
 import request from 'supertest';
 import { AdminAuthService } from '../src/admin/admin-auth.service';
 import { DevSmsProvider } from '../src/auth/sms/dev-sms.provider';
@@ -33,6 +34,7 @@ export function ogrnIp(seed: number): string {
 export const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
 
 export class TestClient {
+  private readonly totpSecrets = new Map<string, string>();
   constructor(private readonly app: INestApplication) {}
   http() {
     return request(this.app.getHttpServer());
@@ -53,8 +55,17 @@ export class TestClient {
   async adminLogin(email: string, role: 'superadmin' | 'support' | 'finance' | 'moderator'): Promise<string> {
     const password = 'very-strong-password-123';
     await this.app.get(AdminAuthService).createAdmin({ email, fullName: `Админ ${role}`, role, password }, null).catch(() => undefined);
-    const res = await this.http().post('/api/v1/admin/auth/login').send({ email, password }).expect(200);
-    return res.body.accessToken;
+    const secret = this.totpSecrets.get(email);
+    if (secret) {
+      const res = await this.http().post('/api/v1/admin/auth/login').send({ email, password, totpCode: authenticator.generate(secret) }).expect(200);
+      return res.body.accessToken;
+    }
+    // Первый вход: двухфакторная авторизация обязательна (С-9) — подключаем.
+    const first = await this.http().post('/api/v1/admin/auth/login').send({ email, password }).expect(200);
+    const setup = await this.http().post('/api/v1/admin/auth/2fa/setup').set('Authorization', `Bearer ${first.body.accessToken}`).expect(201);
+    await this.http().post('/api/v1/admin/auth/2fa/confirm').set('Authorization', `Bearer ${first.body.accessToken}`).send({ code: authenticator.generate(setup.body.secret) }).expect(204);
+    this.totpSecrets.set(email, setup.body.secret);
+    return first.body.accessToken;
   }
   async upload(token: string, body: Buffer = PDF, mime = 'application/pdf'): Promise<string> {
     const res = await this.http()

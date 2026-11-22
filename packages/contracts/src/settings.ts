@@ -28,7 +28,8 @@ export const SETTINGS_REGISTRY = {
   matching_weight_load: { schema: percent, default: 15, source: 'К-6' },
 
   // Смены и время
-  min_order_hours: { schema: positiveInt, default: 4, source: 'В 3.2' },
+  min_order_hours: { schema: positiveInt, default: 4, source: 'В 3.2, С-19' },
+  min_multiday_day_hours: { schema: positiveInt, default: 8, source: 'М-1, С-19' },
   max_shift_hours: { schema: positiveInt, default: 11, source: 'В 3.3' },
   order_hour_step: { schema: positiveInt, default: 1, source: 'В 3.4' },
 
@@ -41,8 +42,10 @@ export const SETTINGS_REGISTRY = {
   final_payment_timeout_hours: { schema: positiveInt, default: 24, source: 'Н-9, К-9' },
   invoice_min_lead_business_days: { schema: positiveInt, default: 3, source: 'К-1' },
   invoice_funds_deadline_before_start_hours: { schema: positiveInt, default: 24, source: 'К-1' },
-  platform_commission_percent: { schema: percent, default: null, source: 'не утверждено' },
-  agent_commission_percent: { schema: percent, default: null, source: 'не утверждено (В 8.4)' },
+  /** Общая комиссия от полной суммы заказа (аренда + расчётная доставка) — Ф-1. */
+  platform_commission_percent: { schema: percent, default: 12, source: 'Ф-1' },
+  /** Вознаграждение независимого диспетчера — процент от полной суммы заказа, внутри общей комиссии (Ф-1). */
+  agent_commission_percent: { schema: percent, default: 7, source: 'Ф-1' },
   first_order_promo_percent: { schema: percent, default: 10, source: 'В-33' },
   support_refund_limit_kopecks: { schema: nonNegativeInt, default: 1_000_000, source: 'К-14' },
 
@@ -57,7 +60,7 @@ export const SETTINGS_REGISTRY = {
   access_token_ttl_sec: { schema: positiveInt, default: 900, source: 'техническое' },
   refresh_token_ttl_days: { schema: positiveInt, default: 30, source: 'техническое' },
 
-  quote_ttl_min: { schema: positiveInt, default: 15, source: 'техническое' },
+  quote_ttl_min: { schema: positiveInt, default: 15, source: 'С-20' },
   min_lead_time_min: { schema: positiveInt, default: 60, source: 'Л-4' },
 
   // Хранение данных

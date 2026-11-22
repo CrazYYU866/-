@@ -81,8 +81,11 @@ export class OperatorService {
         let orderTo = order.status;
         if (e.status === 'finished') {
           await tx.execute(sql`UPDATE operator_day_assignments SET status = 'done', ended_at = now() WHERE shift_id = ${shift.id} AND status = 'active'`);
-          await tx.execute(sql`UPDATE unit_bookings SET status = 'released' WHERE order_id = ${orderId} AND status = 'active' AND upper(period) <= ${new Date(shift.ends_at).toISOString()}::timestamptz AND lower(period) >= ${new Date(shift.starts_at).toISOString()}::timestamptz`);
-          if (isLast) orderTo = 'awaiting_completion_confirmation';
+          // Техника занята весь период заказа (М-2) и освобождается после последней смены.
+          if (isLast) {
+            await tx.execute(sql`UPDATE unit_bookings SET status = 'released' WHERE order_id = ${orderId} AND status = 'active'`);
+            orderTo = 'awaiting_completion_confirmation';
+          }
           else orderTo = shifts.find((s) => s.seq > shift.seq && s.status === 'pending')?.operator_user_id ? 'assigned' : 'awaiting_assignment';
         } else {
           orderTo = e.status;

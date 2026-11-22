@@ -143,7 +143,8 @@ export class MatchingService implements OnModuleInit {
     const unit = await this.unitPoint(offerPre.unit_id);
     const route = await this.routing.route(unit, { lat: pre.site_lat, lng: pre.site_lng });
     const shiftsPre = await this.core.shifts(orderId);
-    const bufferOk = await this.travelBufferOk(offerPre.unit_id, shiftsPre, { lat: pre.site_lat, lng: pre.site_lng }, orderId);
+    const periodPre = reservation(shiftsPre.filter((s) => s.status !== 'finished' && s.status !== 'cancelled'));
+    const bufferOk = await this.travelBufferOk(offerPre.unit_id, periodPre ? [periodPre] : [], { lat: pre.site_lat, lng: pre.site_lng }, orderId);
 
     const outcome = await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
@@ -229,8 +230,11 @@ export class MatchingService implements OnModuleInit {
     const site = sql`ST_SetSRID(ST_MakePoint(${order.site_lng}, ${order.site_lat}), 4326)::geography`;
     const requirements = this.requirementSql(order.requirements);
     const intervals = shifts.filter((s) => s.status !== 'finished' && s.status !== 'cancelled');
-    const noOverlap = intervals.map((s) => sql`NOT EXISTS (SELECT 1 FROM unit_bookings b WHERE b.unit_id = u.id AND b.status = 'active'
-      AND b.period && tstzrange(${new Date(s.starts_at).toISOString()}, ${new Date(s.ends_at).toISOString()}))`);
+    const period = reservation(intervals);
+    const noOverlap = period
+      ? [sql`NOT EXISTS (SELECT 1 FROM unit_bookings b WHERE b.unit_id = u.id AND b.status = 'active'
+          AND b.period && tstzrange(${period.starts_at.toISOString()}, ${period.ends_at.toISOString()}))`]
+      : [];
     const res = await tx.execute<CandidateRow>(sql`
       SELECT u.id AS unit_id, u.org_id, ST_Y(u.base_point::geometry) AS lat, ST_X(u.base_point::geometry) AS lng,
              ST_Distance(u.base_point, ${site}) AS distance_m
@@ -239,17 +243,19 @@ export class MatchingService implements OnModuleInit {
         AND ST_DWithin(u.base_point, ${site}, ${radiusKm} * 1000)
         AND (u.allow_beyond_radius OR ST_DWithin(u.base_point, ${site}, u.work_radius_km * 1000))
         AND NOT EXISTS (SELECT 1 FROM order_excluded_orgs x WHERE x.order_id = ${order.id} AND x.org_id = u.org_id)
-        AND NOT EXISTS (SELECT 1 FROM order_offers f WHERE f.order_id = ${order.id} AND f.unit_id = u.id AND f.search_round = ${order.search_round})
+        AND NOT EXISTS (SELECT 1 FROM order_offers f WHERE f.order_id = ${order.id} AND f.org_id = u.org_id AND f.search_round = ${order.search_round})
         ${sql.join([...requirements, ...noOverlap].map((c) => sql` AND ${c}`), sql``)}
       ORDER BY distance_m LIMIT 50`);
     if (res.rows.length === 0) return null;
 
     const candidates = await this.filterBySchedule(tx, res.rows, intervals, order.timezone);
-    const withOperators = await this.filterByOperators(tx, candidates, intervals);
+    // Многодневный заказ: компанию не исключаем из-за отсутствия машинистов на все дни — назначит после принятия (С-28).
+    const multiDay = new Set(intervals.map((s) => s.work_date)).size > 1;
+    const withOperators = multiDay ? candidates : await this.filterByOperators(tx, candidates, intervals);
     if (withOperators.length === 0) return null;
     const scored = await this.score(tx, withOperators, intervals, radiusKm);
     for (const c of scored) {
-      if (await this.travelBufferOk(c.unit_id, intervals, { lat: order.site_lat, lng: order.site_lng }, order.id)) return c;
+      if (await this.travelBufferOk(c.unit_id, period ? [period] : [], { lat: order.site_lat, lng: order.site_lng }, order.id)) return c;
     }
     return null;
   }
@@ -389,14 +395,17 @@ export class MatchingService implements OnModuleInit {
     return true;
   }
 
-  /** Бронь техники на все незавершённые смены. Пересечение отклоняет EXCLUDE-ограничение БД. */
+  /**
+   * Бронь техники на весь оставшийся период заказа — от начала первой незавершённой смены до конца последней,
+   * включая ночи и перерывы (М-2, С-22). Пересечение отклоняет EXCLUDE-ограничение БД.
+   */
   async tryBook(tx: Tx, unitId: string, orderId: string, shifts: ShiftRow[]): Promise<boolean> {
+    const period = reservation(shifts.filter((x) => x.status !== 'finished' && x.status !== 'cancelled'));
+    if (!period) return true;
     try {
       await tx.execute(sql`SAVEPOINT book`);
-      for (const s of shifts.filter((x) => x.status !== 'finished' && x.status !== 'cancelled')) {
-        await tx.execute(sql`INSERT INTO unit_bookings (unit_id, period, order_id)
-          VALUES (${unitId}, tstzrange(${new Date(s.starts_at).toISOString()}, ${new Date(s.ends_at).toISOString()}), ${orderId})`);
-      }
+      await tx.execute(sql`INSERT INTO unit_bookings (unit_id, period, order_id)
+        VALUES (${unitId}, tstzrange(${period.starts_at.toISOString()}, ${period.ends_at.toISOString()}), ${orderId})`);
       await tx.execute(sql`RELEASE SAVEPOINT book`);
       return true;
     } catch (e) {
@@ -429,4 +438,13 @@ export class MatchingService implements OnModuleInit {
     if (!r) throw new AppException(ERROR_CODES.NOT_FOUND, 'Техника не найдена', HttpStatus.NOT_FOUND);
     return { lat: Number(r.lat), lng: Number(r.lng) };
   }
+}
+
+/** Период резервирования по сменам: от самого раннего начала до самого позднего окончания (М-2, С-22). */
+export function reservation(shifts: { starts_at: Date; ends_at: Date }[]): { starts_at: Date; ends_at: Date } | null {
+  if (shifts.length === 0) return null;
+  return {
+    starts_at: new Date(Math.min(...shifts.map((s) => new Date(s.starts_at).getTime()))),
+    ends_at: new Date(Math.max(...shifts.map((s) => new Date(s.ends_at).getTime()))),
+  };
 }

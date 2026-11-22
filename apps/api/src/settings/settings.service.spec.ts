@@ -23,10 +23,14 @@ describe('SettingsService', () => {
     await expect(service.get('search_radius_max_km')).resolves.toBe(150);
   });
 
-  it('не выдумывает неутверждённые значения: комиссия платформы не задана', async () => {
-    await expect(service.get('platform_commission_percent')).rejects.toMatchObject({
-      code: ERROR_CODES.SETTING_NOT_CONFIGURED,
-    });
+  it('утверждённые финансовые параметры: комиссия 12%, диспетчер 7% (Ф-1)', async () => {
+    await expect(service.get('platform_commission_percent')).resolves.toBe(12);
+    await expect(service.get('agent_commission_percent')).resolves.toBe(7);
+  });
+
+  it('незаданный параметр не подменяется выдуманным значением', async () => {
+    await pool.query(`INSERT INTO platform_settings (key, value) VALUES ('platform_commission_percent', 'null'::jsonb)`);
+    await expect(service.get('platform_commission_percent')).rejects.toMatchObject({ code: ERROR_CODES.SETTING_NOT_CONFIGURED });
   });
 
   it('сохраняет переопределение и пишет историю', async () => {
@@ -48,17 +52,12 @@ describe('SettingsService', () => {
     await expect(service.set('offer_timeout_sec', -1, null)).rejects.toBeInstanceOf(AppException);
   });
 
-  it('показывает в списке, какие параметры не заданы', async () => {
+  it('список показывает, где значение по умолчанию, а где изменено администратором', async () => {
     const list = await service.list();
-    const commission = list.find((s) => s.key === 'platform_commission_percent');
-    expect(commission).toMatchObject({ configured: false, isDefault: true });
-    await service.set('platform_commission_percent', 12, null);
+    expect(list.find((s) => s.key === 'platform_commission_percent')).toMatchObject({ configured: true, isDefault: true, value: 12 });
+    await service.set('platform_commission_percent', 13, null);
     const after = await service.list();
-    expect(after.find((s) => s.key === 'platform_commission_percent')).toMatchObject({
-      configured: true,
-      isDefault: false,
-      value: 12,
-    });
+    expect(after.find((s) => s.key === 'platform_commission_percent')).toMatchObject({ configured: true, isDefault: false, value: 13 });
   });
 
   it('история изменений не редактируется', async () => {

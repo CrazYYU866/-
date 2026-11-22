@@ -138,6 +138,23 @@ describe('Этап 5: расчёт стоимости', () => {
     expect(res.body.rentKopecks).toBe(23 * 250000);
   });
 
+  it('многодневный заказ: минимум 8 часов в каждый день, однодневный — 4 часа (М-1, С-19)', async () => {
+    await unit(north(10));
+    const short = await quote({ days: [{ date: mskDate(3), startTime: '08:00', hours: 8 }, { date: mskDate(4), startTime: '08:00', hours: 6 }] }).expect(400);
+    expect(short.body.message).toMatch(/каждый день — не меньше 8/);
+    await quote({ days: [{ date: mskDate(3), startTime: '08:00', hours: 8 }, { date: mskDate(4), startTime: '08:00', hours: 8 }] }).expect(201);
+    await quote({ days: [{ date: mskDate(3), startTime: '08:00', hours: 4 }] }).expect(201);
+  });
+
+  it('многодневный заказ: техника должна быть свободна весь период, включая ночь (М-2)', async () => {
+    const u = await unit(north(5));
+    await unit(north(30));
+    const night = mskDate(3);
+    await pool.query(`INSERT INTO unit_bookings (unit_id, period) VALUES ($1, tstzrange(($2::date + time '22:00') AT TIME ZONE 'Europe/Moscow', ($2::date + time '23:00') AT TIME ZONE 'Europe/Moscow'))`, [u, night]);
+    const res = await quote({ days: [{ date: mskDate(3), startTime: '08:00', hours: 8 }, { date: mskDate(4), startTime: '08:00', hours: 8 }] }).expect(201);
+    expect(res.body.deliveryKm).toBe(expectedKmTenths(north(30)) / 10);
+  });
+
   it('сроки: не раньше чем через час, не дальше 30 дней, минимум 4 часа', async () => {
     await unit(north(10));
     const soon = new Date(Date.now() + 30 * 60_000);

@@ -412,6 +412,50 @@ describe('Этап 6: заказы и распределение', () => {
       .send({ memberId: two.operators[1]?.memberId, shiftId: shifts.rows[1].id }).expect(204);
   });
 
+  it('после «Пропустить» заказ не предлагается другой технике той же компании в этом поиске (С-24)', async () => {
+    const a = await company(5);
+    const second = north(6);
+    await pool.query(
+      `INSERT INTO equipment_units (org_id, category_id, brand, model, year, attributes, base_point, base_address, work_radius_km, allow_beyond_radius, is_online, verification_status, created_by)
+       VALUES ($1, $2, 'CAT', '2', 2021, '{"operating_weight": 3}', ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, 'База 2', 150, true, true, 'approved', $5)`,
+      [a.orgId, catId, second.lng, second.lat, a.ownerUserId]);
+    const b = await company(20);
+    const id = await order();
+    expect((await pendingOffer(id))?.org_id).toBe(a.orgId);
+    await t.http().post(`/api/v1/partner/offers/${(await pendingOffer(id))?.id}/skip`).set(inOrg(a.owner, a.orgId)).expect(204);
+    await jobs.runDue();
+    expect((await pendingOffer(id))?.org_id).toBe(b.orgId);
+  });
+
+  it('многодневный заказ: техника занята весь период, включая ночи (М-2, С-22)', async () => {
+    const c = await company(5, { operators: 2 });
+    const id = await order([{ date: mskDate(3), startTime: '08:00', hours: 8 }, { date: mskDate(4), startTime: '08:00', hours: 8 }]);
+    await acceptAndPay(c, id);
+    const b = await pool.query("SELECT lower(period) AS s, upper(period) AS e FROM unit_bookings WHERE order_id = $1 AND status = 'active'", [id]);
+    expect(b.rows).toHaveLength(1);
+    const shifts = await pool.query('SELECT starts_at, ends_at FROM order_shifts WHERE order_id = $1 ORDER BY seq', [id]);
+    expect(new Date(b.rows[0].s).toISOString()).toBe(new Date(shifts.rows[0].starts_at).toISOString());
+    expect(new Date(b.rows[0].e).toISOString()).toBe(new Date(shifts.rows[1].ends_at).toISOString());
+  });
+
+  it('многодневный заказ: компания с одним машинистом получает заказ; не все дни назначены за 10 минут — уведомление, без возврата в поиск (С-28)', async () => {
+    const c = await company(5, { operators: 1 });
+    const id = await order([{ date: mskDate(3), startTime: '08:00', hours: 8 }, { date: mskDate(4), startTime: '08:00', hours: 8 }]);
+    expect((await pendingOffer(id))?.org_id).toBe(c.orgId);
+    await acceptAndPay(c, id);
+    await assign(c, id, 0);
+    expect(await status(id)).toBe('assigned');
+    await fire('assignment_deadline', id);
+    expect(await status(id)).toBe('assigned');
+    const notice = await pool.query("SELECT payload FROM domain_events WHERE order_id = $1 AND type = 'order.shifts_unassigned'", [id]);
+    expect(notice.rows).toHaveLength(1);
+    expect(notice.rows[0].payload.admin).toBe(true);
+    // Тот же машинист может работать и во второй день (на разные дни — свободный выбор).
+    const shifts = await pool.query('SELECT id FROM order_shifts WHERE order_id = $1 ORDER BY seq', [id]);
+    await t.http().post(`/api/v1/partner/orders/${id}/assign-operator`).set(inOrg(c.owner, c.orgId))
+      .send({ memberId: c.operators[0]?.memberId, shiftId: shifts.rows[1].id }).expect(204);
+  });
+
   it('чужая компания не видит заказ; заказчик видит только свои заказы', async () => {
     const a = await company(5);
     const b = await company(30);

@@ -83,19 +83,36 @@ export class AssignmentService implements OnModuleInit {
 
   async assignmentReminder(orderId: string, minute: number): Promise<void> {
     const order = await this.core.get(orderId);
-    if (order.status !== 'awaiting_assignment' || !order.partner_org_id) return;
+    if (!['awaiting_assignment', 'assigned'].includes(order.status) || !order.partner_org_id) return;
+    const unassigned = (await this.core.shifts(orderId)).some((s) => s.status === 'pending' && !s.operator_user_id);
+    if (!unassigned) return;
     await this.core.events.emit({ type: 'order.assign_reminder', orderId, orgId: order.partner_org_id, userIds: await this.core.partnerStaff(order.partner_org_id), payload: { minute } });
   }
 
-  /** Машинист не назначен за 10 минут: фиксируем и возвращаем заказ в общий поиск (Р-7, П-6). */
+  /**
+   * Истекли 10 минут на назначение (Р-7, П-6, С-28).
+   * Первая смена без машиниста — заказ возвращается в общий поиск.
+   * Первая назначена, но не все дни многодневного заказа — фиксируем и уведомляем компанию и администрацию (С-28).
+   */
   async assignmentDeadline(orderId: string): Promise<void> {
     await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
-      if (order.status !== 'awaiting_assignment' || !order.partner_org_id) return;
-      const first = (await this.core.shifts(orderId, tx)).find((s) => s.status === 'pending');
-      if (first?.operator_user_id) return;
-      await this.core.partnerIncident(tx, order.partner_org_id, orderId, 'assignment_timeout');
-      await this.returnToSearch(tx, order, { type: 'system' }, 'Машинист не назначен вовремя');
+      if (!order.partner_org_id || !['awaiting_assignment', 'assigned'].includes(order.status)) return;
+      const pending = (await this.core.shifts(orderId, tx)).filter((s) => s.status === 'pending');
+      const first = pending[0];
+      if (order.status === 'awaiting_assignment' && first && !first.operator_user_id) {
+        await this.core.partnerIncident(tx, order.partner_org_id, orderId, 'assignment_timeout');
+        await this.returnToSearch(tx, order, { type: 'system' }, 'Машинист не назначен вовремя');
+        return;
+      }
+      const unassigned = pending.filter((s) => !s.operator_user_id);
+      if (unassigned.length > 0) {
+        await this.core.partnerIncident(tx, order.partner_org_id, orderId, 'assignment_timeout', { shiftIds: unassigned.map((s) => s.id) });
+        await this.core.events.emit({
+          type: 'order.shifts_unassigned', orderId, orgId: order.partner_org_id, userIds: await this.core.partnerStaff(order.partner_org_id, tx),
+          payload: { shiftIds: unassigned.map((s) => s.id), admin: true },
+        }, tx);
+      }
     });
   }
 
@@ -155,9 +172,13 @@ export class AssignmentService implements OnModuleInit {
         const next = shifts.find((s) => s.status === 'pending');
         if (next?.operator_user_id) {
           await this.core.transition(tx, order, 'assigned', { type: 'partner', id: actorUserId }, { shiftId: shift.id, patch: [sql`replacement_deadline_at = NULL`] });
-          for (const key of ['assign', 'remind:5', 'remind:8', 'replace']) await this.core.jobs.cancel(`order:${orderId}:${key}`, tx);
-          for (const m of await this.settings.get('assignment_reminder_minutes')) await this.core.jobs.cancel(`order:${orderId}:remind:${m}`, tx);
+          await this.core.jobs.cancel(`order:${orderId}:replace`, tx);
         }
+      }
+      // Все дни назначены — таймер 10 минут и напоминания больше не нужны (С-28).
+      if ((await this.core.shifts(orderId, tx)).every((s) => s.status !== 'pending' || s.operator_user_id)) {
+        await this.core.jobs.cancel(`order:${orderId}:assign`, tx);
+        for (const m of await this.settings.get('assignment_reminder_minutes')) await this.core.jobs.cancel(`order:${orderId}:remind:${m}`, tx);
       }
       await this.core.jobs.cancel(`shift:${shift.id}:assign`, tx);
       await this.core.events.emit({ type: 'order.operator_assigned', orderId, orgId: org.orgId, userIds: [member.user_id], payload: { shiftId: shift.id } }, tx);

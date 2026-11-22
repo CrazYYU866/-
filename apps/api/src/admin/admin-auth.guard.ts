@@ -13,6 +13,9 @@ export interface AuthAdmin {
 }
 
 const ROLES_KEY = 'admin_roles';
+const ALLOW_NO_TOTP_KEY = 'admin_allow_no_totp';
+/** Доступно до подключения 2FA: подключение, профиль, выход (С-9). */
+export const AllowWithoutTotp = () => SetMetadata(ALLOW_NO_TOTP_KEY, true);
 /** Какие роли администраторов имеют доступ (В-40). Без декоратора — любой активный администратор. */
 export const AdminRoles = (...roles: AdminRole[]) => SetMetadata(ROLES_KEY, roles);
 
@@ -35,6 +38,11 @@ export class AdminAuthGuard implements CanActivate {
     const payload = header?.startsWith('Bearer ') ? await this.auth.verifyAccess(header.slice(7)) : null;
     if (!payload) throw new AppException(ERROR_CODES.UNAUTHORIZED, 'Требуется вход администратора', HttpStatus.UNAUTHORIZED);
 
+    // Двухфакторная авторизация обязательна для всех администраторов (С-9).
+    const allowNoTotp = this.reflector.getAllAndOverride<boolean>(ALLOW_NO_TOTP_KEY, [ctx.getHandler(), ctx.getClass()]);
+    if (!payload.totpEnabled && !allowNoTotp) {
+      throw new AppException(ERROR_CODES.TOTP_ENROLLMENT_REQUIRED, 'Подключите двухфакторную авторизацию', HttpStatus.FORBIDDEN);
+    }
     const roles = this.reflector.getAllAndOverride<AdminRole[] | undefined>(ROLES_KEY, [ctx.getHandler(), ctx.getClass()]);
     if (roles && roles.length > 0 && !roles.includes(payload.role)) {
       throw new AppException(ERROR_CODES.FORBIDDEN, 'Недостаточно прав', HttpStatus.FORBIDDEN);
