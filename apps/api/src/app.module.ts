@@ -6,9 +6,11 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { EquipmentModule } from './equipment/equipment.module';
+import { FinanceCoreModule } from './finance/finance-core.module';
 import { GeoModule } from './geo/geo.module';
 import { JobsModule } from './jobs/jobs.module';
 import { OrdersModule } from './orders/orders.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PricingModule } from './pricing/pricing.module';
 import { CommonModule } from './common/common.module';
 import { FilesModule } from './files/files.module';
@@ -49,7 +51,9 @@ const env = loadEnv();
     GeoModule,
     PricingModule,
     JobsModule,
+    FinanceCoreModule,
     OrdersModule,
+    PaymentsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
 })

@@ -44,6 +44,8 @@ export interface QuoteResponse {
   rentKopecks: number;
   deliveryKopecks: number;
   totalKopecks: number;
-  /** Оплата после принятия исполнителем: первая часть (В 4.1). */
+  /** Первый платёж физлица после принятия исполнителем — 100% (решения 07). */
   prepaymentKopecks: number;
+  /** Первый платёж юрлица после принятия — 50%; остальное после завершения (решения 07). */
+  legalFirstPaymentKopecks: number;
 }

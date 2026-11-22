@@ -4,7 +4,6 @@ import type Redis from 'ioredis';
 import type { Pool } from 'pg';
 import { createApp } from '../src/app.factory';
 import { JobsService } from '../src/jobs/jobs.service';
-import { AssignmentService } from '../src/orders/assignment.service';
 import { REDIS } from '../src/redis/redis.module';
 import { resetTestDatabase } from './db';
 import { innLegal, ogrnLegal, TestClient } from './helpers';
@@ -77,11 +76,16 @@ describe('Этап 6: заказы и распределение', () => {
     await pool.query("UPDATE order_offers SET expires_at = now() - interval '1 second' WHERE order_id = $1 AND status = 'pending'", [orderId]);
     await fire('offer_timeout', orderId);
   }
+  async function pay(orderId: string) {
+    const p = await t.http().post(`/api/v1/client/orders/${orderId}/payments`).set(bearer(customer.token)).expect(201);
+    const providerId = String(p.body.confirmationUrl).split('/').pop();
+    await t.http().post(`/api/v1/dev/payments/${providerId}/succeed`).expect(200);
+  }
   async function acceptAndPay(c: Company, orderId: string) {
     const offer = await pendingOffer(orderId);
     expect(offer?.org_id).toBe(c.orgId);
     await t.http().post(`/api/v1/partner/offers/${offer?.id}/accept`).set(inOrg(c.owner, c.orgId)).expect(204);
-    await app.get(AssignmentService).confirmPrepayment(orderId);
+    await pay(orderId);
   }
   async function assign(c: Company, orderId: string, idx = 0) {
     await t.http().post(`/api/v1/partner/orders/${orderId}/assign-operator`).set(inOrg(c.owner, c.orgId)).send({ memberId: c.operators[idx]?.memberId }).expect(204);
@@ -121,7 +125,7 @@ describe('Этап 6: заказы и распределение', () => {
 
     await t.http().post(`/api/v1/partner/offers/${offers.body[0].offerId}/accept`).set(inOrg(c.owner, c.orgId)).expect(204);
     expect(await status(id)).toBe('awaiting_prepayment');
-    await app.get(AssignmentService).confirmPrepayment(id);
+    await pay(id);
     expect(await status(id)).toBe('awaiting_assignment');
 
     const ops = await t.http().get(`/api/v1/partner/orders/${id}/available-operators`).set(inOrg(c.owner, c.orgId)).expect(200);
@@ -142,11 +146,12 @@ describe('Этап 6: заказы и распределение', () => {
     expect(await status(id)).toBe('awaiting_completion_confirmation');
 
     await t.http().post(`/api/v1/client/orders/${id}/confirm-completion`).set(bearer(customer.token)).expect(204);
-    expect(await status(id)).toBe('awaiting_final_payment');
+    // Физлицо оплатило 100% заранее — заказ сразу завершён (решения 07).
+    expect(await status(id)).toBe('completed');
     const hist = await pool.query("SELECT to_status FROM order_status_history WHERE order_id = $1 AND to_status NOT LIKE 'shift:%' ORDER BY id", [id]);
     expect(hist.rows.map((r) => r.to_status)).toEqual([
       'searching', 'offered', 'awaiting_prepayment', 'awaiting_assignment', 'assigned', 'en_route', 'arrived', 'in_progress',
-      'awaiting_completion_confirmation', 'awaiting_final_payment',
+      'awaiting_completion_confirmation', 'completed',
     ]);
     const gps = await pool.query("SELECT location_unavailable_reason, point IS NOT NULL AS has_point FROM order_status_history WHERE order_id = $1 AND to_status LIKE 'shift:%' ORDER BY id", [id]);
     expect(gps.rows[0]).toEqual({ location_unavailable_reason: null, has_point: true });
@@ -333,21 +338,23 @@ describe('Этап 6: заказы и распределение', () => {
     expect(notice.rows[0].n).toBe(1);
   });
 
-  it('отмена заказчиком: до оплаты бесплатно, после предоплаты 50% не возвращаются (Н-13)', async () => {
+  it('отмена заказчиком: до оплаты бесплатно; после оплаты — на решение поддержки, деньги автоматически не возвращаются (07)', async () => {
     const c = await company(5);
     const free = await order();
-    expect((await t.http().post(`/api/v1/client/orders/${free}/cancel/preview`).set(bearer(customer.token)).expect(200)).body).toEqual({ allowed: true, feeKopecks: 0, refundKopecks: 0 });
+    expect((await t.http().post(`/api/v1/client/orders/${free}/cancel/preview`).set(bearer(customer.token)).expect(200)).body).toEqual({ allowed: true, paidKopecks: 0, policy: 'free' });
     await t.http().post(`/api/v1/client/orders/${free}/cancel`).set(bearer(customer.token)).send({}).expect(204);
     expect(await status(free)).toBe('cancelled');
     expect(await pendingOffer(free)).toBeUndefined();
+    expect((await pool.query('SELECT count(*)::int AS n FROM cancellation_reviews WHERE order_id = $1', [free])).rows[0].n).toBe(0);
 
     const paid = await order();
     await acceptAndPay(c, paid);
-    const prepayment = Number((await pool.query('SELECT prepayment_kopecks FROM orders WHERE id = $1', [paid])).rows[0].prepayment_kopecks);
-    expect((await t.http().post(`/api/v1/client/orders/${paid}/cancel/preview`).set(bearer(customer.token)).expect(200)).body.feeKopecks).toBe(prepayment);
+    const total = Number((await pool.query('SELECT total_kopecks FROM orders WHERE id = $1', [paid])).rows[0].total_kopecks);
+    expect((await t.http().post(`/api/v1/client/orders/${paid}/cancel/preview`).set(bearer(customer.token)).expect(200)).body).toEqual({ allowed: true, paidKopecks: total, policy: 'support_review' });
     await t.http().post(`/api/v1/client/orders/${paid}/cancel`).set(bearer(customer.token)).send({ reason: 'Передумал' }).expect(204);
-    const row = await pool.query('SELECT status, cancellation_fee_kopecks FROM orders WHERE id = $1', [paid]);
-    expect(row.rows[0]).toEqual({ status: 'cancelled', cancellation_fee_kopecks: String(prepayment) });
+    const review = await pool.query('SELECT status, initiated_by, paid_kopecks FROM cancellation_reviews WHERE order_id = $1', [paid]);
+    expect(review.rows[0]).toEqual({ status: 'pending', initiated_by: 'customer', paid_kopecks: String(total) });
+    expect((await pool.query('SELECT count(*)::int AS n FROM refunds WHERE order_id = $1', [paid])).rows[0].n).toBe(0);
   });
 
   it('срок поиска истёк: без предоплаты — «не найден», с предоплатой — к возврату (К-2, К-8)', async () => {
@@ -363,6 +370,7 @@ describe('Этап 6: заказы и распределение', () => {
     await jobs.runDue();
     await fire('search_deadline', id2);
     expect(await status(id2)).toBe('refund_pending');
+    expect((await pool.query("SELECT initiated_by FROM cancellation_reviews WHERE order_id = $1", [id2])).rows[0].initiated_by).toBe('system');
   });
 
   it('автозавершение через 24 часа; открытый спор его останавливает (Н-19)', async () => {
@@ -378,7 +386,7 @@ describe('Этап 6: заказы и распределение', () => {
     };
     const auto = await run(0);
     await fire('auto_complete', auto);
-    expect(await status(auto)).toBe('awaiting_final_payment');
+    expect(await status(auto)).toBe('completed');
     expect((await pool.query('SELECT auto_completed FROM orders WHERE id = $1', [auto])).rows[0].auto_completed).toBe(true);
 
     await pool.query("UPDATE operator_day_assignments SET status = 'done'");

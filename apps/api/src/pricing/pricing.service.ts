@@ -6,7 +6,9 @@ import { AppException } from '../common/app-exception';
 import { DB, type Database } from '../database/database.module';
 import { equipmentSchedules } from '../database/schema';
 import { ROUTING, type RoutingProvider } from '../geo/routing.provider';
+import { SettlementService } from '../finance/settlement.service';
 import { SettingsService } from '../settings/settings.service';
+import { firstPaymentKopecks } from '../finance/split';
 import { fitsSchedule } from './time';
 
 export interface Interval {
@@ -38,9 +40,13 @@ export class PricingService {
     @Inject(ROUTING) private readonly routing: RoutingProvider,
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
+    private readonly settlement: SettlementService,
   ) {}
 
   async quote(customerId: string, req: QuoteRequest, now: Date = new Date()): Promise<QuoteResponse> {
+    if (await this.settlement.hasOpenDebt(this.db, customerId)) {
+      throw err(ERROR_CODES.DEBT_EXISTS, 'Погасите задолженность по предыдущему заказу', HttpStatus.CONFLICT);
+    }
     const category = await this.assertCustomerCategory(req.categoryId);
     const region = await this.catalog.regionByPoint(req.site.lat, req.site.lng);
     if (!region) throw err(ERROR_CODES.REGION_NOT_FOUND, 'По этому адресу сервис пока не работает', HttpStatus.NOT_FOUND);
@@ -77,8 +83,9 @@ export class PricingService {
     const rentKopecks = totalHours * rent.priceKopecks;
     const subtotal = rentKopecks + deliveryKopecks;
     const total = Math.round(subtotal / 100) * 100;
-    const prepaymentPercent = await this.settings.get('prepayment_percent');
-    const prepayment = Math.round((total * prepaymentPercent) / 100 / 100) * 100;
+    // Первый платёж: физлицо — 100%, юрлицо — 50%; плательщик выбирается при оформлении (решения 07).
+    const prepayment = firstPaymentKopecks(total, 'individual', 50);
+    const legalFirst = firstPaymentKopecks(total, 'legal', await this.settings.get('prepayment_percent'));
     const ttl = await this.settings.get('quote_ttl_min');
     const expiresAt = new Date(now.getTime() + ttl * 60_000);
 
@@ -102,7 +109,7 @@ export class PricingService {
     return {
       id, expiresAt: expiresAt.toISOString(), urgency, region: { id: region.id, name: region.name }, totalHours, shifts,
       hourPriceKopecks: rent.priceKopecks, kmPriceKopecks: delivery.priceKopecks, deliveryKm: routeKmTenths / 10,
-      rentKopecks, deliveryKopecks, totalKopecks: total, prepaymentKopecks: prepayment,
+      rentKopecks, deliveryKopecks, totalKopecks: total, prepaymentKopecks: prepayment, legalFirstPaymentKopecks: legalFirst,
     };
   }
 

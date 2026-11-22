@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { GeoPointSchema } from './catalog';
+import { PayerSchema } from './finance';
 
 export const CreateOrderSchema = z.object({
   quoteId: z.string().uuid(),
   siteComment: z.string().trim().max(1000).optional(),
+  /** Кто платит: физлицо (100% после принятия) или юрлицо заказчика (50/50) — решения 07. */
+  payer: PayerSchema.default({ kind: 'individual' }),
 });
 export type CreateOrder = z.infer<typeof CreateOrderSchema>;
 

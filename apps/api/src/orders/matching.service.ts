@@ -5,6 +5,7 @@ import { AppException } from '../common/app-exception';
 import { ROUTING, type RoutingProvider } from '../geo/routing.provider';
 import type { OrgContext } from '../organizations/org-context.guard';
 import { fitsSchedule } from '../pricing/time';
+import { SettlementService } from '../finance/settlement.service';
 import { SettingsService } from '../settings/settings.service';
 import { OrderCore, type OrderRow, type ShiftRow, type Tx } from './order-core';
 
@@ -32,6 +33,7 @@ export class MatchingService implements OnModuleInit {
     private readonly core: OrderCore,
     private readonly settings: SettingsService,
     @Inject(ROUTING) private readonly routing: RoutingProvider,
+    private readonly settlement: SettlementService,
   ) {}
 
   onModuleInit(): void {
@@ -220,6 +222,8 @@ export class MatchingService implements OnModuleInit {
       await this.core.transition(tx, order, to, { type: 'system' }, {
         reason: 'Исполнитель не найден', patch: [sql`cancelled_at = now()`, sql`cancelled_by = 'system'`, sql`cancellation_reason = 'Исполнитель не найден'`],
       });
+      // Деньги не возвращаются автоматически — решение принимает поддержка (07, вопрос Н-29).
+      if (order.prepaid_at) await this.settlement.openCancellationReview(tx, orderId, 'system', 'Исполнитель не найден');
       await this.core.events.emit({ type: 'order.search_failed', orderId, userIds: [order.customer_id], payload: { refund: Boolean(order.prepaid_at) } }, tx);
     });
   }

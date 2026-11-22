@@ -21,7 +21,7 @@ export class ClientOrdersController {
   @Post()
   create(@CurrentUser() u: AuthUser, @Body(new ZodValidationPipe(CreateOrderSchema)) dto: CreateOrder) {
     clientOnly(u);
-    return this.orders.create(u.userId, dto.quoteId, dto.siteComment);
+    return this.orders.create(u.userId, dto.quoteId, dto.siteComment, dto.payer);
   }
 
   @Get()

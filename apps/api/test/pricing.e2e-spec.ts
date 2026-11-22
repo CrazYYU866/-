@@ -72,7 +72,7 @@ describe('Этап 5: расчёт стоимости', () => {
     await pool.end();
   });
 
-  it('аренда = часы × тариф, доставка = км (до 0,1) × 2 × тариф за км, итог — целые рубли, предоплата 50%', async () => {
+  it('аренда = часы × тариф, доставка = км (до 0,1) × 2 × тариф за км, итог — целые рубли; первый платёж: физлицо 100%, юрлицо 50%', async () => {
     const base = north(10);
     await unit(base);
     const res = await quote({}).expect(201);
@@ -81,7 +81,7 @@ describe('Этап 5: расчёт стоимости', () => {
     const total = Math.round((8 * 250000 + delivery) / 100) * 100;
     expect(res.body).toMatchObject({
       urgency: 'scheduled', totalHours: 8, hourPriceKopecks: 250000, kmPriceKopecks: 10000, deliveryKm: km10 / 10,
-      rentKopecks: 2_000_000, deliveryKopecks: delivery, totalKopecks: total, prepaymentKopecks: Math.round(total / 2 / 100) * 100,
+      rentKopecks: 2_000_000, deliveryKopecks: delivery, totalKopecks: total, prepaymentKopecks: total, legalFirstPaymentKopecks: Math.round(total / 2 / 100) * 100,
       region: { name: 'Москва' },
     });
     expect(res.body.totalKopecks % 100).toBe(0);

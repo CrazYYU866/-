@@ -35,6 +35,10 @@ const EnvSchema = z.object({
   ROUTING_PROVIDER: z.enum(['dev']).default('dev'),
   /** Запускать обработчик отложенных заданий в этом процессе. */
   JOBS_AUTORUN: envBool(true),
+  /** Платёжный провайдер: dev — тестовые оплаты без денег; yookassa — после договора (В-34). */
+  PAYMENT_PROVIDER: z.enum(['dev']).default('dev'),
+  /** Внешний адрес API (ссылки оплаты, SMS-ссылки). */
+  PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
   TRUST_PROXY: envBool(false),
 }).superRefine((env, ctx) => {
@@ -43,6 +47,9 @@ const EnvSchema = z.object({
   }
   if (env.NODE_ENV === 'production' && env.ROUTING_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['ROUTING_PROVIDER'], message: 'тестовая маршрутизация запрещена в production' });
+  }
+  if (env.NODE_ENV === 'production' && env.PAYMENT_PROVIDER === 'dev') {
+    ctx.addIssue({ code: 'custom', path: ['PAYMENT_PROVIDER'], message: 'тестовые платежи запрещены в production' });
   }
   if (env.STORAGE_DRIVER === 's3' && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
     ctx.addIssue({ code: 'custom', path: ['S3_BUCKET'], message: 'для s3 нужны S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY' });

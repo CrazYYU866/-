@@ -1,6 +1,8 @@
 import type { INestApplication } from '@nestjs/common';
 import { authenticator } from 'otplib';
+import type Redis from 'ioredis';
 import request from 'supertest';
+import { REDIS } from '../src/redis/redis.module';
 import { AdminAuthService } from '../src/admin/admin-auth.service';
 import { DevSmsProvider } from '../src/auth/sms/dev-sms.provider';
 import { SMS_PROVIDER } from '../src/auth/sms/sms.provider';
@@ -48,6 +50,10 @@ export class TestClient {
     return m[1];
   }
   async login(phone: string, app: 'client' | 'partner' = 'partner'): Promise<{ token: string; userId: string }> {
+    // Лимиты отправки кодов из прошлых запусков тестов не должны мешать входу.
+    const redis = this.app.get<Redis>(REDIS);
+    const keys = await redis.keys(`otp:*${phone}*`);
+    if (keys.length) await redis.del(...keys);
     await this.http().post('/api/v1/auth/otp/request').send({ phone, app }).expect(200);
     const res = await this.http().post('/api/v1/auth/otp/verify').send({ phone, app, code: this.lastCode(phone) }).expect(200);
     return { token: res.body.accessToken, userId: res.body.user.id };

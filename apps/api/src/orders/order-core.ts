@@ -43,6 +43,11 @@ export type OrderRow = {
   search_round: number;
   prepaid_at: Date | null;
   timezone: string;
+  payer_kind: 'individual' | 'legal';
+  payer_legal_profile_id: string | null;
+  paid_kopecks: string;
+  refunded_kopecks: string;
+  partner_amount_kopecks: string | null;
 };
 
 export type ShiftRow = {
@@ -73,7 +78,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   en_route: ['arrived', 'searching', 'cancelled'],
   arrived: ['in_progress', 'searching', 'cancelled'],
   in_progress: ['assigned', 'awaiting_assignment', 'awaiting_completion_confirmation', 'cancelled'],
-  awaiting_completion_confirmation: ['awaiting_final_payment', 'disputed'],
+  awaiting_completion_confirmation: ['awaiting_final_payment', 'completed', 'disputed'],
   awaiting_final_payment: ['completed', 'disputed'],
   completed: [],
   cancelled: [],
