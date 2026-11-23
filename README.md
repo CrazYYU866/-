@@ -79,6 +79,7 @@ npx expo export --platform web                                # веб-сбор�
 - [Оставшиеся блокеры](docs/BLOCKERS.md)
 - [Первые шаги: сервер, стенд, Expo](docs/FIRST_STEPS.md)
 - [То же — только с iPhone](docs/IPHONE_SETUP.md)
+- [Бесплатный просмотр: GitHub Codespaces + Expo Go](docs/FREE_DEMO.md)
 - [Тестирование на iPhone и Android](docs/DEVICE_TESTING.md)
 - [Техническое задание с утверждёнными дополнениями](docs/TZ.md)
 - Резервное копирование и проверка восстановления: `infra/backup/`

@@ -1,0 +1,19 @@
+{
+  "name": "Ковш на Час — демо-стенд",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "hostRequirements": { "cpus": 2, "memory": "8gb" },
+  "forwardPorts": [3000, 5173, 8090],
+  "portsAttributes": {
+    "3000": { "label": "API", "onAutoForward": "silent" },
+    "5173": { "label": "Админка", "onAutoForward": "notify" },
+    "8090": { "label": "Веб-версия заказчика", "onAutoForward": "silent" },
+    "8081": { "label": "Expo: Ковш на Час", "onAutoForward": "silent" },
+    "8082": { "label": "Expo: Партнёр", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "bash infra/codespace/setup.sh",
+  "postStartCommand": "bash infra/codespace/start.sh"
+}
