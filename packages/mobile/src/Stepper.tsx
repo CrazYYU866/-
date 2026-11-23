@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, View } from 'react-native';
-import { radius, space, useTheme } from '../lib/theme';
+import { radius, space, useTheme } from './theme';
 import { T } from './ui';
 
 export function Stepper({ value, onChange, min, max, step = 1, format, label }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; format?: (v: number) => string; label?: string }) {

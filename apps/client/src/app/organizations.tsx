@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Button, Card, Field, Notice, Pill, Screen, Section, T } from '../components/ui';
-import { api, post } from '../lib/api';
-import { normalizePhone } from '../lib/format';
-import { space } from '../lib/theme';
+import { Button, Card, Field, Notice, Pill, Screen, Section, T } from '@kovsh/mobile';
+import { api, post } from '@kovsh/mobile';
+import { normalizePhone } from '@kovsh/mobile';
+import { space } from '@kovsh/mobile';
 
 interface Org { id: string; name: string; inn: string; kpp: string | null; legal_address: string; email: string; role: 'owner' | 'employee' }
 interface Invitation { id: string; name: string; inn: string }

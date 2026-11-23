@@ -3,12 +3,12 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Icon } from '../../../components/Icon';
-import { ErrorView, Loading, Notice, T } from '../../../components/ui';
-import { api, auth, post } from '../../../lib/api';
-import { time } from '../../../lib/format';
-import { useOrderRealtime } from '../../../lib/realtime';
-import { font, radius, space, useTheme } from '../../../lib/theme';
+import { Icon } from '@kovsh/mobile';
+import { ErrorView, Loading, Notice, T } from '@kovsh/mobile';
+import { api, auth, post } from '@kovsh/mobile';
+import { time } from '@kovsh/mobile';
+import { useOrderRealtime } from '@kovsh/mobile';
+import { font, radius, space, useTheme } from '@kovsh/mobile';
 
 interface Msg { id: number | string; sender_user_id: string | null; sender_role: string; sender_name: string | null; body: string; created_at: string }
 const ROLE: Record<string, string> = { customer: 'Вы', operator: 'Машинист', partner: 'Исполнитель', admin: 'Поддержка', system: 'Сервис' };

@@ -1,4 +1,4 @@
-import type { Tone } from './theme';
+import type { Tone } from '@kovsh/mobile';
 
 export type VisibleStatus = 'new' | 'in_progress' | 'completed' | 'cancelled' | 'disputed';
 

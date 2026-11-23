@@ -2,7 +2,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 
 const FONT = Platform.OS === 'web' ? 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif' : undefined;
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
-import { radius, useTheme } from '../lib/theme';
+import { radius, useTheme } from './theme';
 
 interface P { lat: number; lng: number }
 

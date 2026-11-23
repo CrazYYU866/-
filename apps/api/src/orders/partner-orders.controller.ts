@@ -30,13 +30,23 @@ export class PartnerOrdersController {
 
   @Get('offers')
   async offers(@CurrentOrg() org: OrgContext) {
-    const res = await this.core.db.execute<{ id: string; order_id: string; expires_at: Date; distance_km: string; unit_id: string; category: string; site_address: string; first_start_at: Date; total_hours: number; urgency: string }>(sql`
-      SELECT f.id, f.order_id, f.expires_at, f.distance_km, f.unit_id, c.name AS category, o.site_address, o.first_start_at, o.total_hours, o.urgency
-      FROM order_offers f JOIN orders o ON o.id = f.order_id JOIN equipment_categories c ON c.id = o.category_id
+    const res = await this.core.db.execute<{ id: string; order_id: string; number: string; expires_at: Date; distance_km: string; unit_id: string; brand: string; model: string; reg_number: string | null; category: string; site_address: string; site_comment: string | null; first_start_at: Date; total_hours: number; urgency: string }>(sql`
+      SELECT f.id, f.order_id, o.number, f.expires_at, f.distance_km, f.unit_id, u.brand, u.model, u.reg_number, c.name AS category,
+        o.site_address, o.site_comment, o.first_start_at, o.total_hours, o.urgency
+      FROM order_offers f JOIN orders o ON o.id = f.order_id JOIN equipment_categories c ON c.id = o.category_id JOIN equipment_units u ON u.id = f.unit_id
       WHERE f.org_id = ${org.orgId} AND f.status = 'pending' AND f.expires_at > now() ORDER BY f.expires_at`);
-    return res.rows.map((r) => ({
-      offerId: r.id, orderId: r.order_id, expiresAt: new Date(r.expires_at).toISOString(), distanceKm: Number(r.distance_km), unitId: r.unit_id,
-      category: r.category, siteAddress: r.site_address, firstStartAt: new Date(r.first_start_at).toISOString(), totalHours: r.total_hours, urgency: r.urgency,
+    return Promise.all(res.rows.map(async (r) => {
+      const shifts = await this.core.shifts(r.order_id);
+      const estimate = await this.matching.offerEstimate(r.id);
+      return {
+        offerId: r.id, orderId: r.order_id, number: Number(r.number), expiresAt: new Date(r.expires_at).toISOString(), serverTime: new Date().toISOString(),
+        distanceKm: Number(r.distance_km), unit: { id: r.unit_id, brand: r.brand, model: r.model, regNumber: r.reg_number },
+        category: r.category, siteAddress: r.site_address, siteComment: r.site_comment, firstStartAt: new Date(r.first_start_at).toISOString(),
+        totalHours: r.total_hours, urgency: r.urgency,
+        shifts: shifts.map((s) => ({ start: new Date(s.starts_at).toISOString(), end: new Date(s.ends_at).toISOString(), hours: s.hours })),
+        // Сумма к получению после комиссии (Н-22) — оценка по маршруту от стоянки техники.
+        estimate,
+      };
     }));
   }
 

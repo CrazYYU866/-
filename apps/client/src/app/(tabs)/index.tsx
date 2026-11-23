@@ -2,11 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Icon } from '../../components/Icon';
-import { ErrorView, Loading, Screen, T } from '../../components/ui';
-import { api } from '../../lib/api';
-import { rub } from '../../lib/format';
-import { radius, space, useTheme } from '../../lib/theme';
+import { Icon } from '@kovsh/mobile';
+import { ErrorView, Loading, Screen, T } from '@kovsh/mobile';
+import { api } from '@kovsh/mobile';
+import { rub } from '@kovsh/mobile';
+import { radius, space, useTheme } from '@kovsh/mobile';
 
 export interface CatNode { id: string; name: string; description: string | null; isLeaf: boolean; children: CatNode[]; hourPriceKopecks?: number | null }
 interface Region { id: string; code: string; name: string }

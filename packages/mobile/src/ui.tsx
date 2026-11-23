@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { font, radius, space, toneColors, useTheme, type Tone } from '../lib/theme';
+import { font, radius, space, toneColors, useTheme, type Tone } from './theme';
 
 export function Screen({ children, scroll = true, footer, edges }: { children: ReactNode; scroll?: boolean; footer?: ReactNode; edges?: ('top' | 'bottom')[] }) {
   const t = useTheme();

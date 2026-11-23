@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { RefreshControl, ScrollView, View } from 'react-native';
-import { Button, Card, ErrorView, Loading, Pill, T } from '../../components/ui';
-import { api } from '../../lib/api';
-import { dateTime, rub } from '../../lib/format';
+import { Button, Card, ErrorView, Loading, Pill, T } from '@kovsh/mobile';
+import { api } from '@kovsh/mobile';
+import { dateTime, rub } from '@kovsh/mobile';
 import { VISIBLE_UI, whatNow, type OrderListItem } from '../../lib/orders';
-import { space, useTheme } from '../../lib/theme';
+import { space, useTheme } from '@kovsh/mobile';
 
 const ACTION_NEEDED = ['awaiting_customer_confirmation', 'awaiting_prepayment', 'awaiting_completion_confirmation', 'awaiting_final_payment'];
 

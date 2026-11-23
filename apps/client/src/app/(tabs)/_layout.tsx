@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router/js-tabs';
-import { Icon } from '../../components/Icon';
-import { useTheme } from '../../lib/theme';
+import { Icon } from '@kovsh/mobile';
+import { useTheme } from '@kovsh/mobile';
 
 export default function TabsLayout() {
   const t = useTheme();

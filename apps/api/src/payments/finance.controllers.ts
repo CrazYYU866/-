@@ -389,8 +389,8 @@ export class PartnerFinanceController {
 
   @Get('payouts')
   async payouts(@CurrentOrg() org: OrgContext) {
-    const res = await this.core.db.execute(sql`SELECT id, kind, payout_date, amount_kopecks, status, paid_at FROM payouts WHERE org_id = ${org.orgId} ORDER BY payout_date DESC`);
-    return res.rows;
+    const res = await this.core.db.execute(sql`SELECT id, kind, payout_date::text AS payout_date, amount_kopecks, status, paid_at FROM payouts WHERE org_id = ${org.orgId} ORDER BY payout_date DESC`);
+    return res.rows.map((r) => ({ ...r, paid_at: r['paid_at'] ? new Date(String(r['paid_at'])).toISOString() : null }));
   }
 
   @Get('accruals')
@@ -400,6 +400,6 @@ export class PartnerFinanceController {
       SELECT t.kind, t.order_id, o.number, -sum(e.amount_kopecks) AS amount_kopecks, t.created_at
       FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id LEFT JOIN orders o ON o.id = t.order_id
       WHERE e.account = ${account} AND t.kind <> 'payout' GROUP BY t.id, o.number ORDER BY t.created_at DESC`);
-    return res.rows;
+    return res.rows.map((r) => ({ ...r, created_at: new Date(String(r['created_at'])).toISOString() }));
   }
 }

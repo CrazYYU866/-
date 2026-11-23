@@ -6,7 +6,23 @@ import { storage } from './storage';
  */
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? (Platform.OS === 'web' ? '' : 'http://localhost:3000')).replace(/\/$/, '');
 const BASE = `${API_URL}/api/v1`;
-const KEY = 'kovsh.client.session';
+
+export type AppKind = 'client' | 'partner';
+let APP: AppKind = 'client';
+let orgId: string | null = null;
+
+/** Вызывается один раз при старте приложения: от этого зависят ключ хранения сессии и вход по SMS. */
+export function configureApi(app: AppKind) {
+  APP = app;
+}
+export const currentApp = () => APP;
+const KEY = () => `kovsh.${APP}.session`;
+
+/** Компания, от имени которой работает пользователь приложения партнёра (Р-13: права — по роли в этой компании). */
+export function setOrgId(id: string | null) {
+  orgId = id;
+}
+export const getOrgId = () => orgId;
 
 export interface Session {
   accessToken: string;
@@ -26,7 +42,7 @@ const listeners = new Set<(s: Session | null) => void>();
 
 export const auth = {
   async load(): Promise<Session | null> {
-    const raw = await storage.get(KEY);
+    const raw = await storage.get(KEY());
     session = raw ? (JSON.parse(raw) as Session) : null;
     return session;
   },
@@ -35,7 +51,7 @@ export const auth = {
   },
   async set(s: Session | null) {
     session = s;
-    await storage.set(KEY, s ? JSON.stringify(s) : null);
+    await storage.set(KEY(), s ? JSON.stringify(s) : null);
     listeners.forEach((l) => l(s));
   },
   subscribe(l: (s: Session | null) => void) {
@@ -69,10 +85,12 @@ async function refresh(): Promise<boolean> {
   return refreshing;
 }
 
-export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; retry?: boolean } = {}): Promise<T> {
+export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; retry?: boolean; noOrg?: boolean; orgOverride?: string } = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (session) headers.Authorization = `Bearer ${session.accessToken}`;
+  const org = init.orgOverride ?? orgId;
+  if (org && !init.noOrg) headers['X-Org-Id'] = org;
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, { method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'), headers, body: init.body !== undefined ? JSON.stringify(init.body) : undefined });
@@ -90,4 +108,19 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   return data as T;
 }
 
-export const post = <T = unknown>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
+export const post = <T = unknown>(path: string, body: unknown = {}, orgOverride?: string) => api<T>(path, { method: 'POST', body, orgOverride });
+
+/** Загрузка файла (документ, фото): multipart, поле `file`. */
+export async function uploadFile(file: { uri: string; name: string; mimeType: string; webFile?: Blob }): Promise<{ id: string }> {
+  const form = new FormData();
+  if (file.webFile) form.append('file', file.webFile, file.name);
+  else form.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as unknown as Blob);
+  const send = () =>
+    fetch(`${BASE}/files`, { method: 'POST', body: form, headers: session ? { Authorization: `Bearer ${session.accessToken}` } : {} });
+  let res = await send().catch(() => null);
+  if (res?.status === 401 && (await refresh())) res = await send().catch(() => null);
+  if (!res) throw new ApiError(0, 'NETWORK', 'Нет связи с сервером');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.code ?? 'ERROR', data.message ?? 'Не удалось загрузить файл');
+  return data as { id: string };
+}

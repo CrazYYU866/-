@@ -1,13 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { AddressPicker, type Place } from '../../components/AddressPicker';
-import { Stepper } from '../../components/Stepper';
-import { Button, Card, Choice, Divider, Field, Notice, Row, Screen, Section, T } from '../../components/ui';
-import { api, post } from '../../lib/api';
-import { hoursWord, rub, time } from '../../lib/format';
-import { radius, space, useTheme } from '../../lib/theme';
+import { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { AddressPicker, api, Button, Card, Choice, DaysPicker, Divider, Field, hoursWord, Notice, post, radius, Row, rub, Screen, Section, space, T, time, useTheme, type OrderDay, type Place } from '@kovsh/mobile';
 
 interface Attr { key: string; label: string; type: string; unit: { label: string } | null; options: string[] | null; filterable: boolean }
 interface Quote {
@@ -16,25 +11,7 @@ interface Quote {
   totalKopecks: number; discountKopecks: number; payableKopecks: number; prepaymentKopecks: number; legalFirstPaymentKopecks: number;
 }
 interface Org { id: string; name: string; inn: string }
-interface Day { date: string; startTime: string; hours: number }
 type Req = string | boolean | { min: number };
-
-const TZ = 'Europe/Moscow';
-const isoDay = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: TZ });
-const pad = (n: number) => String(n).padStart(2, '0');
-
-function nextDays(n: number) {
-  const out: { date: string; wd: string; day: string }[] = [];
-  for (let i = 0; i < n; i++) {
-    const d = new Date(Date.now() + i * 86_400_000);
-    out.push({
-      date: isoDay(d),
-      wd: i === 0 ? 'Сегодня' : i === 1 ? 'Завтра' : d.toLocaleDateString('ru-RU', { timeZone: TZ, weekday: 'short' }),
-      day: d.toLocaleDateString('ru-RU', { timeZone: TZ, day: 'numeric', month: 'short' }),
-    });
-  }
-  return out;
-}
 
 export default function NewOrder() {
   const t = useTheme();
@@ -45,25 +22,16 @@ export default function NewOrder() {
 
   const [place, setPlace] = useState<Place | null>(null);
   const [comment, setComment] = useState('');
-  const [days, setDays] = useState<Day[]>([]);
+  const [days, setDays] = useState<OrderDay[]>([]);
   const [req, setReq] = useState<Record<string, Req>>({});
   const [promo, setPromo] = useState('');
   const [payer, setPayer] = useState<string>('individual');
   const [quote, setQuote] = useState<Quote | null>(null);
-  const calendar = useMemo(() => nextDays(21), []);
   const filters = (attrs.data ?? []).filter((a) => a.filterable && ['number', 'integer', 'boolean', 'enum'].includes(a.type));
 
   const changed = <A,>(fn: (v: A) => void) => (v: A) => { fn(v); setQuote(null); };
 
-  function toggleDay(date: string) {
-    setQuote(null);
-    setDays((cur) => {
-      if (cur.some((d) => d.date === date)) return cur.filter((d) => d.date !== date);
-      const tpl = cur[cur.length - 1] ?? { startTime: '08:00', hours: 8 };
-      return [...cur, { date, startTime: tpl.startTime, hours: tpl.hours }].sort((a, b) => a.date.localeCompare(b.date));
-    });
-  }
-  const patchDay = (date: string, p: Partial<Day>) => { setQuote(null); setDays((cur) => cur.map((d) => (d.date === date ? { ...d, ...p } : d))); };
+
 
   const calc = useMutation({
     mutationFn: () => post<Quote>('/client/quotes', {
@@ -111,38 +79,7 @@ export default function NewOrder() {
       </Section>
 
       <Section title="Когда">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
-          {calendar.map((d) => {
-            const on = days.some((x) => x.date === d.date);
-            return (
-              <Pressable key={d.date} onPress={() => toggleDay(d.date)} accessibilityRole="checkbox" accessibilityState={{ checked: on }}
-                style={[s.day, { backgroundColor: on ? t.accent : t.surface, borderColor: on ? t.accent : t.border }]}>
-                <T v="small" style={{ color: on ? t.accentText : t.textMuted }}>{d.wd}</T>
-                <T style={{ fontWeight: '700', color: on ? t.accentText : t.text }}>{d.day}</T>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        <T v="small" muted>{days.length ? 'Для каждого дня укажите начало и сколько часов нужна техника.' : 'Выберите один или несколько дней.'}</T>
-        {days.map((d) => {
-          const [hh, mm] = d.startTime.split(':').map(Number) as [number, number];
-          const minutes = hh * 60 + mm;
-          return (
-            <Card key={d.date} style={{ gap: space.md }}>
-              <T style={{ fontWeight: '600' }}>{calendar.find((c) => c.date === d.date)?.day}, {calendar.find((c) => c.date === d.date)?.wd.toLowerCase()}</T>
-              <View style={s.rowBetween}>
-                <T muted>Начало</T>
-                <Stepper label="Начало" value={minutes} min={0} max={23 * 60 + 30} step={30}
-                  format={(v) => `${pad(Math.floor(v / 60))}:${pad(v % 60)}`}
-                  onChange={(v) => patchDay(d.date, { startTime: `${pad(Math.floor(v / 60))}:${pad(v % 60)}` })} />
-              </View>
-              <View style={s.rowBetween}>
-                <T muted>Часов</T>
-                <Stepper label="Часов" value={d.hours} min={1} max={24} format={(v) => `${v} ${hoursWord(v)}`} onChange={(v) => patchDay(d.date, { hours: v })} />
-              </View>
-            </Card>
-          );
-        })}
+        <DaysPicker days={days} onChange={changed(setDays)} />
       </Section>
 
       {filters.length ? (

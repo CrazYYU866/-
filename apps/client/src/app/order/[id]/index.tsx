@@ -3,14 +3,14 @@ import * as WebBrowser from 'expo-web-browser';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { Icon } from '../../../components/Icon';
-import { RouteScheme } from '../../../components/RouteScheme';
-import { Button, Card, Choice, Divider, ErrorView, Field, Loading, Notice, Pill, Row, Section, T } from '../../../components/ui';
-import { api, post } from '../../../lib/api';
-import { dateShort, dateTime, hoursWord, rub, time } from '../../../lib/format';
+import { Icon } from '@kovsh/mobile';
+import { RouteScheme } from '@kovsh/mobile';
+import { Button, Card, Choice, Divider, ErrorView, Field, Loading, Notice, Pill, Row, Section, T } from '@kovsh/mobile';
+import { api, post } from '@kovsh/mobile';
+import { dateShort, dateTime, hoursWord, rub, time } from '@kovsh/mobile';
 import { CHAT_OPEN, SHIFT_UI, VISIBLE_UI, whatNow, type OrderView } from '../../../lib/orders';
-import { useOrderRealtime } from '../../../lib/realtime';
-import { radius, space, useTheme } from '../../../lib/theme';
+import { useOrderRealtime } from '@kovsh/mobile';
+import { radius, space, useTheme } from '@kovsh/mobile';
 
 interface Tracking {
   mode: 'none' | 'base' | 'live' | 'on_site' | 'finished';

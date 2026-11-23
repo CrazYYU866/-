@@ -2,8 +2,8 @@ import * as Location from 'expo-location';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { api } from '../lib/api';
-import { radius, space, useTheme } from '../lib/theme';
+import { api } from './api';
+import { radius, space, useTheme } from './theme';
 import { Icon } from './Icon';
 import { Button, Field, Notice, T } from './ui';
 

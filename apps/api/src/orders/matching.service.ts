@@ -136,6 +136,22 @@ export class MatchingService implements OnModuleInit {
    * Принятие предложения. Сервер гарантирует ровно одно принятие:
    * блокировка заказа, проверка срока по времени БД, бронь техники с запретом пересечений (EXCLUDE).
    */
+  /**
+   * Сколько исполнитель получит, если примет предложение (Н-22): та же формула, что при принятии —
+   * доставка исполнителя по маршруту от стоянки техники (×2), комиссия 12% от полной суммы (Ф-1, Ф-2).
+   * Оценка: окончательная сумма фиксируется при завершении (продления, замена техники).
+   */
+  async offerEstimate(offerId: string): Promise<{ amountKopecks: number; deliveryKm: number }> {
+    const offer = await this.loadOffer(this.core.db, offerId);
+    const order = await this.core.get(offer.order_id);
+    const unit = await this.unitPoint(offer.unit_id);
+    const route = await this.routing.route(unit, { lat: order.site_lat, lng: order.site_lng });
+    const kmTenths = Math.round(route.distanceMeters / 100);
+    const partnerDelivery = Math.round((kmTenths * 2 * Number(order.km_price_kopecks)) / 10);
+    const split = await this.settlement.split({ ...order, partner_delivery_kopecks: partnerDelivery });
+    return { amountKopecks: split.partner, deliveryKm: kmTenths / 10 };
+  }
+
   async accept(offerId: string, org: OrgContext, userId: string): Promise<void> {
     const orderId = await this.offerOrderId(offerId);
     const pre = await this.core.get(orderId);

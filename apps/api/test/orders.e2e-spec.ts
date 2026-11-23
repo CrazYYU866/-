@@ -122,9 +122,15 @@ describe('Этап 6: заказы и распределение', () => {
     const offers = await t.http().get('/api/v1/partner/offers').set(inOrg(c.owner, c.orgId)).expect(200);
     expect(offers.body).toHaveLength(1);
     expect(new Date(offers.body[0].expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(40_000);
+    expect(offers.body[0].shifts).toHaveLength(1);
+    const estimate = offers.body[0].estimate.amountKopecks;
+    expect(estimate).toBeGreaterThan(0);
 
     await t.http().post(`/api/v1/partner/offers/${offers.body[0].offerId}/accept`).set(inOrg(c.owner, c.orgId)).expect(204);
     expect(await status(id)).toBe('awaiting_prepayment');
+    // Сумма в предложении совпадает с суммой к получению после принятия (Н-22).
+    const accepted = await t.http().get(`/api/v1/partner/orders/${id}`).set(inOrg(c.owner, c.orgId)).expect(200);
+    expect(accepted.body.partnerPrice.amountKopecks).toBe(estimate);
     await pay(id);
     expect(await status(id)).toBe('awaiting_assignment');
 

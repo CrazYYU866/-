@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "Ковш на Час Партнёр",
+    "slug": "kovsh-na-chas-partner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ru.kovshnachas.partner",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Чтобы показать заказчику, где машинист, пока он едет на объект.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Во время поездки на объект координаты передаются заказчику, даже если приложение свёрнуто. Передача останавливается, когда вы нажимаете «Прибыл».",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5B000",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "ru.kovshnachas.partner",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Чтобы показать заказчику, где машинист, пока он едет на объект.",
+          "locationAlwaysAndWhenInUsePermission": "Во время поездки на объект координаты передаются заказчику, даже если приложение свёрнуто. Передача останавливается, когда вы нажимаете «Прибыл».",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Чтобы прикрепить фото техники и документов.",
+          "cameraPermission": "Чтобы сфотографировать технику и документы."
+        }
+      ]
+    ],
+    "scheme": "kovsh-partner",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -3,10 +3,9 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Loading } from '../components/ui';
-import { ApiError } from '../lib/api';
-import { SessionProvider, useSession } from '../lib/session';
-import { useTheme } from '../lib/theme';
+import { ApiError, configureApi, Loading, SessionProvider, useSession, useTheme } from '@kovsh/mobile';
+
+configureApi('client');
 
 function RootStack() {
   const { session, ready } = useSession();

@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Card, Field, Notice, Row, Screen, Section, T } from '../../components/ui';
-import { api, auth, post } from '../../lib/api';
-import { maskPhone, rub } from '../../lib/format';
-import { space } from '../../lib/theme';
+import { Button, Card, Field, Notice, Row, Screen, Section, T } from '@kovsh/mobile';
+import { api, auth, post } from '@kovsh/mobile';
+import { maskPhone, rub } from '@kovsh/mobile';
+import { space } from '@kovsh/mobile';
 
 interface Me { id: string; phone: string; fullName: string | null }
 interface Debt { id: string; order_id: string; amount_kopecks: string; status: string }
