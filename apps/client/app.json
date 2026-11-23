@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Ковш на Час",
+    "slug": "kovsh-na-chas",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ru.kovshnachas.client",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Чтобы подставить адрес объекта, на котором вы находитесь."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5B000",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "ru.kovshnachas.client",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Чтобы подставить адрес объекта, на котором вы находитесь."
+        }
+      ]
+    ],
+    "scheme": "kovsh",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

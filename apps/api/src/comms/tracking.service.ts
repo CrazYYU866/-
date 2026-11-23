@@ -87,7 +87,7 @@ export class TrackingService {
       const stale = last.age_sec > staleSec;
       const base = { mode: 'live' as const, site, position, stale, traveledKm: Math.round(Number(traveled) / 100) / 10 };
       // Нет свежих координат — показываем последнюю точку и время; ETA и маршрут не выдумываем (Р-19–21).
-      if (stale) return { ...base, message: `Нет связи с техникой, последнее обновление в ${position.updatedAt}`, etaMin: null, remainingKm: null };
+      if (stale) return { ...base, message: `Нет связи с техникой, последнее обновление ${new Date(position.updatedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (МСК)`, etaMin: null, remainingKm: null };
       const r = await this.routing.route(position, site);
       return {
         ...base, etaMin: Math.ceil(r.durationSeconds / 60), remainingKm: Math.round(r.distanceMeters / 100) / 10,

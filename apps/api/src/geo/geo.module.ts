@@ -1,12 +1,26 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_ENV } from '../config/config.module';
 import type { AppEnv } from '../config/env';
+import { DevGeocoderProvider } from './dev-geocoder.provider';
+import { GeoController } from './geo.controller';
+import { GEOCODER } from './geocoder.provider';
 import { DevRoutingProvider } from './dev-routing.provider';
 import { ROUTING } from './routing.provider';
 
 @Global()
 @Module({
+  controllers: [GeoController],
   providers: [
+    {
+      provide: GEOCODER,
+      inject: [APP_ENV],
+      useFactory: (env: AppEnv) => {
+        switch (env.GEOCODER_PROVIDER) {
+          case 'dev':
+            return new DevGeocoderProvider();
+        }
+      },
+    },
     {
       provide: ROUTING,
       inject: [APP_ENV],
@@ -18,6 +32,6 @@ import { ROUTING } from './routing.provider';
       },
     },
   ],
-  exports: [ROUTING],
+  exports: [ROUTING, GEOCODER],
 })
 export class GeoModule {}

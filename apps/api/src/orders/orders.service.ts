@@ -438,7 +438,21 @@ export class OrdersService implements OnModuleInit {
       remainingKopecks: Math.max(0, payableOf(order) - Number(order.paid_kopecks)),
       prepaid: Boolean(order.prepaid_at),
     };
-    if (audience === 'customer') return { ...base, price: customerPrice };
+    if (audience === 'customer') {
+      // Отмена после оплаты: заказчик видит, что решение принимает поддержка, и итог возврата (решения 07).
+      const review = (await this.core.db.execute<{ status: string; decision: string | null; refund_kopecks: string | null; decision_reason: string | null; decided_at: Date | null }>(sql`
+        SELECT status, decision, refund_kopecks, decision_reason, decided_at FROM cancellation_reviews WHERE order_id = ${order.id}`)).rows[0];
+      const refundReview = review
+        ? {
+            status: review.status === 'decided' ? ('decided' as const) : ('in_review' as const),
+            decision: review.status === 'decided' ? review.decision : null,
+            refundKopecks: review.status === 'decided' && review.refund_kopecks !== null ? Number(review.refund_kopecks) : null,
+            reason: review.status === 'decided' ? review.decision_reason : null,
+            decidedAt: review.status === 'decided' && review.decided_at ? new Date(review.decided_at).toISOString() : null,
+          }
+        : null;
+      return { ...base, price: customerPrice, refundReview };
+    }
     // Компании — сумма к получению после комиссии (Н-22) и статус оплаты заказчиком (П-9); без уведомлений об оплате (ТЗ §14).
     const amount = order.partner_amount_kopecks !== null
       ? Number(order.partner_amount_kopecks)

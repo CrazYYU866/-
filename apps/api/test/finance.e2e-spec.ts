@@ -220,6 +220,9 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     const support = await t.adminLogin('sup@fin.test', 'support');
     const queue = await t.http().get('/api/v1/admin/cancellation-reviews?status=pending').set(bearer(support)).expect(200);
     expect(queue.body.map((r: { order_id: string }) => r.order_id)).toContain(orderId);
+    // Заказчик видит, что отмену рассматривает поддержка; сумма возврата до решения не показывается.
+    const before = await t.http().get(`/api/v1/client/orders/${orderId}`).set(bearer(cust.token)).expect(200);
+    expect(before.body.refundReview).toEqual({ status: 'in_review', decision: null, refundKopecks: null, reason: null, decidedAt: null });
 
     // Возврат total − 5 000 ₽ больше лимита поддержки 10 000 ₽ — нужно подтверждение финансиста (К-14).
     const retained = 500_000;
@@ -228,7 +231,11 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect((await pool.query('SELECT count(*)::int AS n FROM refunds WHERE order_id = $1', [orderId])).rows[0].n).toBe(0);
     const finance = await t.adminLogin('fin@fin.test', 'finance');
     await t.http().post(`/api/v1/admin/cancellation-reviews/${orderId}/decide`).set(bearer(finance)).send({ retainedKopecks: 0, reason: 'x' }).expect(403);
+    const pendingApproval = await t.http().get(`/api/v1/client/orders/${orderId}`).set(bearer(cust.token)).expect(200);
+    expect(pendingApproval.body.refundReview.status).toBe('in_review');
     await t.http().post(`/api/v1/admin/cancellation-reviews/${orderId}/approve`).set(bearer(finance)).expect(200);
+    const after = await t.http().get(`/api/v1/client/orders/${orderId}`).set(bearer(cust.token)).expect(200);
+    expect(after.body.refundReview).toMatchObject({ status: 'decided', decision: 'partial_refund', refundKopecks: total - retained, reason: 'Техника выехала' });
 
     const r = await pool.query('SELECT status, partner_kopecks, agent_kopecks, platform_kopecks, refund_kopecks FROM cancellation_reviews WHERE order_id = $1', [orderId]);
     expect(r.rows[0]).toEqual({ status: 'decided', partner_kopecks: '440000', agent_kopecks: '0', platform_kopecks: '60000', refund_kopecks: String(total - retained) });
