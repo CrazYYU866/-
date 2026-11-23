@@ -284,6 +284,29 @@ export class AdminFinanceController {
     return res.rows;
   }
 
+  @Post('payouts/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  @AdminRoles('superadmin', 'finance')
+  async retryPayout(@CurrentAdmin() a: AuthAdmin, @Param('id', ParseUUIDPipe) id: string) {
+    const r = await this.payouts.retry(id);
+    await this.audit.log({ adminId: a.adminId, action: 'payout.retry', entity: 'payout', entityId: id, after: r, ip: a.ip });
+    return r;
+  }
+
+  @Get('refunds/failed')
+  @AdminRoles('superadmin', 'finance', 'support')
+  failedRefunds() {
+    return this.cancellations.failedRefunds();
+  }
+
+  @Post('refunds/:id/retry')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @AdminRoles('superadmin', 'finance', 'support')
+  async retryRefund(@CurrentAdmin() a: AuthAdmin, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.cancellations.retryRefund(id);
+    await this.audit.log({ adminId: a.adminId, action: 'refund.retry', entity: 'refund', entityId: id, ip: a.ip });
+  }
+
   @Post('payouts/run')
   @HttpCode(HttpStatus.OK)
   @AdminRoles('superadmin', 'finance')

@@ -196,6 +196,26 @@ export class CancellationService implements OnModuleInit {
     });
   }
 
+  /** Повтор возврата, отклонённого провайдером: новый ключ идемпотентности для каждой отклонённой попытки. */
+  async retryRefund(refundId: string): Promise<void> {
+    const r = (await this.core.db.execute<{ status: string; idempotency_key: string; provider_refund_id: string | null }>(sql`
+      SELECT status, idempotency_key, provider_refund_id FROM refunds WHERE id = ${refundId}`)).rows[0];
+    if (!r) throw new AppException(ERROR_CODES.NOT_FOUND, 'Возврат не найден', HttpStatus.NOT_FOUND);
+    if (r.status !== 'failed') throw new AppException(ERROR_CODES.CONFLICT, 'Повторить можно только возврат, отклонённый провайдером', HttpStatus.CONFLICT);
+    const key = `${r.idempotency_key.split(':after:')[0]}:after:${r.provider_refund_id ?? 'none'}`;
+    const upd = await this.core.db.execute(sql`
+      UPDATE refunds SET status = 'processing', provider_refund_id = NULL, idempotency_key = ${key} WHERE id = ${refundId} AND status = 'failed' RETURNING id`);
+    if (!upd.rows[0]) return;
+    await this.executeRefund(refundId);
+  }
+
+  async failedRefunds() {
+    const res = await this.core.db.execute(sql`
+      SELECT r.id, r.order_id, o.number, r.amount_kopecks, r.reason, r.created_at FROM refunds r JOIN orders o ON o.id = r.order_id
+      WHERE r.status = 'failed' ORDER BY r.created_at DESC`);
+    return res.rows;
+  }
+
   /** Провайдер отказал в возврате: отмечаем, поддержка получает задачу (деньги не считаются возвращёнными). */
   async failRefund(refundId: string, reason: string): Promise<void> {
     await this.core.db.transaction(async (tx) => {

@@ -1,7 +1,9 @@
-import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleInit } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleInit } from '@nestjs/common';
 import { APP_ENV } from '../config/config.module';
 import type { AppEnv } from '../config/env';
 import { sql } from 'drizzle-orm';
+import { ERROR_CODES } from '@kovsh/contracts';
+import { AppException } from '../common/app-exception';
 import { FieldCipher } from '../common/crypto/field-cipher';
 import { ACC, LedgerService } from '../finance/ledger.service';
 import { OrderCore } from '../orders/order-core';
@@ -128,6 +130,30 @@ export class PayoutsService implements OnModuleInit, OnApplicationBootstrap {
     if (r.status === 'succeeded') await this.completePayout(payoutId);
     this.logger.log(`Выплата ${kind} ${orgId}: ${amount} коп.`);
     return true;
+  }
+
+  /**
+   * Повтор выплаты, отклонённой провайдером (например, после исправления реквизитов). Берутся текущие реквизиты
+   * компании; ключ идемпотентности новый для каждой отклонённой попытки, но одинаковый при повторном нажатии.
+   */
+  async retry(payoutId: string): Promise<{ status: string }> {
+    const p = (await this.core.db.execute<{ org_id: string; amount_kopecks: string; status: string; provider_payout_id: string | null; payout_date: string }>(sql`
+      SELECT org_id, amount_kopecks, status, provider_payout_id, payout_date::text AS payout_date FROM payouts WHERE id = ${payoutId}`)).rows[0];
+    if (!p) throw new AppException(ERROR_CODES.NOT_FOUND, 'Выплата не найдена', HttpStatus.NOT_FOUND);
+    if (p.status !== 'failed') throw new AppException(ERROR_CODES.CONFLICT, 'Повторить можно только выплату, отклонённую провайдером', HttpStatus.CONFLICT);
+    const bank = (await this.core.db.execute<{ bik: string; account_number_enc: string; inn: string }>(sql`
+      SELECT b.bik, b.account_number_enc, o.inn FROM organization_bank_accounts b JOIN organizations o ON o.id = b.org_id
+      WHERE b.org_id = ${p.org_id} AND b.is_current`)).rows[0];
+    if (!bank) throw new AppException(ERROR_CODES.CONFLICT, 'У компании нет реквизитов для выплат', HttpStatus.CONFLICT);
+    const upd = await this.core.db.execute(sql`UPDATE payouts SET status = 'processing', status_reason = NULL WHERE id = ${payoutId} AND status = 'failed' RETURNING id`);
+    if (!upd.rows[0]) return { status: 'processing' };
+    const r = await this.provider.payout({
+      amountKopecks: Number(p.amount_kopecks), bik: bank.bik, accountNumber: this.cipher.decrypt(bank.account_number_enc), recipientInn: bank.inn,
+      idempotencyKey: `payout:${payoutId}:after:${p.provider_payout_id ?? 'none'}`, description: `Выплата «Ковш на Час» за ${p.payout_date} (повтор)`,
+    });
+    await this.core.db.execute(sql`UPDATE payouts SET provider_payout_id = ${r.providerPayoutId} WHERE id = ${payoutId}`);
+    if (r.status === 'succeeded') await this.completePayout(payoutId);
+    return { status: r.status === 'succeeded' ? 'paid' : 'processing' };
   }
 
   /** Выплата подтверждена провайдером: проводка по счёту исполнителя/диспетчера. Повторный вызов ничего не меняет. */

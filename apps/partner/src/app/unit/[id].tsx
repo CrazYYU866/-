@@ -35,6 +35,7 @@ export default function UnitScreen() {
         <T v="h2">{u.brand} {u.model}</T>
         <T muted>{u.categoryName}{u.year ? `, ${u.year} г.` : ''}{u.regNumber ? ` · ${u.regNumber}` : ''}</T>
       </View>
+      <Button kind="secondary" small title="Изменить данные техники" onPress={() => router.push({ pathname: '/unit/edit', params: { id } })} />
       {u.verificationStatus === 'rejected' && u.rejectionReason ? <Notice tone="danger">{`Проверка не пройдена: ${u.rejectionReason}`}</Notice> : null}
       {u.verificationStatus === 'pending' ? <Notice tone="info">Техника на проверке у модератора. После проверки её можно вывести на линию.</Notice> : null}
 

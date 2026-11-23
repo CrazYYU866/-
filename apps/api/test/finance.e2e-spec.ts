@@ -430,6 +430,36 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
       // Повторное уведомление «успешно» по уже отклонённой выплате ничего не проводит.
       await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${p1.id}-y`, type: 'payout.succeeded', providerPayoutId: p1.provider_payout_id }).expect(200);
       expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n).toBe(payoutsBefore);
+
+      // Повтор отклонённой выплаты финансистом: новая попытка у провайдера, после подтверждения — проводка.
+      const support2 = await t.adminLogin('sup-retry@fin.test', 'support');
+      await t.http().post(`/api/v1/admin/payouts/${p1.id}/retry`).set(bearer(support2)).expect(403);
+      const retry = await t.http().post(`/api/v1/admin/payouts/${p1.id}/retry`).set(bearer(finance)).expect(200);
+      expect(retry.body.status).toBe('processing');
+      await t.http().post(`/api/v1/admin/payouts/${p1.id}/retry`).set(bearer(finance)).expect(409);
+      const p1b = (await pool.query('SELECT status, provider_payout_id FROM payouts WHERE id = $1', [p1.id])).rows[0];
+      expect(p1b.provider_payout_id).not.toBe(p1.provider_payout_id);
+      await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${p1.id}-z`, type: 'payout.succeeded', providerPayoutId: p1b.provider_payout_id }).expect(200);
+      expect((await pool.query('SELECT status FROM payouts WHERE id = $1', [p1.id])).rows[0].status).toBe('paid');
+      expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n).toBe(payoutsBefore + 1);
+
+      // Возврат: провайдер отклонил → в списке неудачных → повтор поддержкой → подтверждён.
+      const c3 = await customerWith('individual');
+      const o3 = await placeAndAccept(c3, co);
+      await pay(c3.token, o3.orderId);
+      await t.http().post(`/api/v1/client/orders/${o3.orderId}/cancel`).set(bearer(c3.token)).send({}).expect(204);
+      await t.http().post(`/api/v1/admin/cancellation-reviews/${o3.orderId}/decide`).set(bearer(support2)).send({ retainedKopecks: o3.total - 500_000, reason: 'Частично' }).expect(200);
+      await jobs.runDue();
+      const r3 = (await pool.query('SELECT id, provider_refund_id FROM refunds WHERE order_id = $1', [o3.orderId])).rows[0];
+      await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${r3.id}-fail`, type: 'refund.cancelled', providerRefundId: r3.provider_refund_id, reason: 'Карта закрыта' }).expect(200);
+      const failed = await t.http().get('/api/v1/admin/refunds/failed').set(bearer(support2)).expect(200);
+      expect(failed.body.map((x: { id: string }) => x.id)).toContain(r3.id);
+      await t.http().post(`/api/v1/admin/refunds/${r3.id}/retry`).set(bearer(support2)).expect(204);
+      const r3b = (await pool.query('SELECT status, provider_refund_id FROM refunds WHERE id = $1', [r3.id])).rows[0];
+      expect(r3b.status).toBe('processing');
+      expect(r3b.provider_refund_id).not.toBe(r3.provider_refund_id);
+      await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${r3.id}-ok`, type: 'refund.succeeded', providerRefundId: r3b.provider_refund_id }).expect(200);
+      expect(Number((await order(o3.orderId)).refunded_kopecks)).toBe(500_000);
     } finally {
       provider.refund = origRefund;
       provider.payout = origPayout;
@@ -470,7 +500,8 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
 
     await t.http().post('/api/v1/admin/payouts/run').set(bearer(finance)).expect(200);
     expect((await pool.query('SELECT count(*)::int AS n FROM payout_items WHERE order_id = $1', [o1])).rows[0].n).toBe(1);
-    expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n).toBe(1);
+    // Проводки выплат именно этой компании (другие тесты файла тоже проводят выплаты).
+    expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout' AND meta->>'orgId' = $1", [co.orgId])).rows[0].n).toBe(1);
   });
 
   it('журнал: несбалансированную транзакцию БД не принимает; журнал не редактируется', async () => {

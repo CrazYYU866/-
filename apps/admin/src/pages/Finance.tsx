@@ -15,6 +15,7 @@ export function CancellationsPage({ role }: { role: string }) {
     <>
       <h1>Отмены и возвраты</h1>
       <div className="tabs">{[['pending', 'Ждут решения'], ['awaiting_approval', 'Ждут подтверждения'], ['decided', 'Решены']].map(([k, l]) => <button key={k} className={status === k ? 'on' : ''} onClick={() => setStatus(k as string)}>{l}</button>)}</div>
+      <FailedRefunds />
       <div className="grid">{q.data?.length === 0 && <div className="card empty">Пусто</div>}
         {q.data?.map((r) => <ReviewCard key={r.order_id} r={r} role={role} />)}</div>
     </>
@@ -92,13 +93,14 @@ function Summary() {
   </>;
 }
 function Payouts() {
-  const q = useQuery({ queryKey: ['payouts'], queryFn: () => api<{ org_name: string; kind: string; payout_date: string; amount_kopecks: string; status: string; paid_at: string | null }[]>('/admin/payouts') });
+  const q = useQuery({ queryKey: ['payouts'], queryFn: () => api<{ id: string; org_name: string; kind: string; payout_date: string; amount_kopecks: string; status: string; status_reason: string | null; paid_at: string | null }[]>('/admin/payouts') });
   return <>
     <div className="spread"><p className="muted">Выплаты — на следующий день после завершения заказа (Н-10), по каждому заказу один раз.</p>
       <Action label="Запустить выплаты сейчас" path="/admin/payouts/run" confirm="Запустить выплаты по созревшим начислениям?" invalidate={[['payouts'], ['fin-summary']]} /></div>
     <Table rows={q.data} empty="Выплат ещё не было" cols={[
       { h: 'Получатель', c: (p) => <>{p.org_name}<div className="muted">{p.kind === 'agent' ? 'Независимый диспетчер' : 'Исполнитель'}</div></> },
-      { h: 'Дата', c: (p) => p.payout_date?.slice(0, 10) }, { h: 'Сумма', c: (p) => <Money k={p.amount_kopecks} /> }, { h: 'Статус', c: (p) => <Status s={p.status} /> },
+      { h: 'Дата', c: (p) => p.payout_date?.slice(0, 10) }, { h: 'Сумма', c: (p) => <Money k={p.amount_kopecks} /> }, { h: 'Статус', c: (p) => <><Status s={p.status} />{p.status_reason ? <div className="muted">{p.status_reason}</div> : null}</> },
+      { h: '', c: (p) => (p.status === 'failed' ? <Action label="Повторить" path={`/admin/payouts/${p.id}/retry`} confirm="Повторить выплату по текущим реквизитам компании?" invalidate={[['payouts'], ['fin-summary']]} /> : null) },
     ]} />
   </>;
 }
@@ -124,4 +126,19 @@ function Payments() {
     { h: 'Заказ', c: (p) => <Link to={`/orders/${p.order_id}`}>открыть</Link> }, { h: 'Часть', c: (p) => p.part }, { h: 'Сумма', c: (p) => <Money k={p.amount_kopecks} /> },
     { h: 'Способ', c: (p) => p.provider }, { h: 'Статус', c: (p) => <Status s={p.status} /> }, { h: 'Создан', c: (p) => <DateTime v={p.created_at} /> },
   ]} />;
+}
+
+/** Возвраты, которые платёжный провайдер отклонил: деньги заказчику не ушли, нужен повтор. */
+function FailedRefunds() {
+  const q = useQuery({ queryKey: ['refunds-failed'], queryFn: () => api<{ id: string; number: string; amount_kopecks: string; reason: string | null; created_at: string }[]>('/admin/refunds/failed') });
+  if (!q.data?.length) return null;
+  return (
+    <div className="card" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
+      <h3>Возвраты не прошли у платёжного провайдера</h3>
+      <Table rows={q.data} cols={[
+        { h: 'Заказ', c: (r) => <>№{r.number}</> }, { h: 'Сумма', c: (r) => <Money k={r.amount_kopecks} /> }, { h: 'Основание', c: (r) => r.reason ?? '' },
+        { h: '', c: (r) => <Action label="Повторить возврат" path={`/admin/refunds/${r.id}/retry`} confirm="Отправить возврат провайдеру повторно?" invalidate={[['refunds-failed'], ['reviews']]} /> },
+      ]} />
+    </div>
+  );
 }

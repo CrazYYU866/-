@@ -49,6 +49,7 @@ function RootStack() {
         <Stack.Screen name="unit/[id]" options={{ title: 'Техника' }} />
         <Stack.Screen name="unit/new" options={{ title: 'Новая техника' }} />
         <Stack.Screen name="unit/schedule" options={{ title: 'Расписание' }} />
+        <Stack.Screen name="unit/edit" options={{ title: 'Изменить технику' }} />
         <Stack.Screen name="chat/[id]" options={{ title: 'Переписка' }} />
         <Stack.Screen name="agent/new" options={{ title: 'Заявка за заказчика' }} />
         <Stack.Screen name="company/documents" options={{ title: 'Документы компании' }} />
