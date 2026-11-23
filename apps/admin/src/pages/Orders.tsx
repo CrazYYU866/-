@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { DateTime, Money, OrderStatus, Status, Table } from '../components/ui';
+import { Action, DateTime, Money, OrderStatus, Status, Table } from '../components/ui';
 
 interface OrderRow { id: string; number: number; status: string; category: string; siteAddress: string; customerPhone: string; partnerName: string | null; agentName: string | null; totalKopecks: number; firstStartAt: string; createdAt: string }
 
@@ -69,6 +69,19 @@ export function OrderPage({ role }: { role: string }) {
         <h1>Заказ №{o.number} <OrderStatus s={o.status} /></h1>
         {o.cancellationReview && <Link to="/cancellations">Отмена: <Status s={o.cancellationReview.status} /></Link>}
       </div>
+      {o.status === 'disputed' && ['superadmin', 'support'].includes(role) && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3>Открыт спор</h3>
+          <p className="muted">
+            {o.history.filter((h) => h.status === 'disputed').at(-1)?.reason ?? 'Причина не указана'}. «Работа принята» — обычное завершение: начисления исполнителю,
+            для юрлица — вторая часть оплаты. «Отменить» — заказ отменяется, сумму возврата решаете в разделе «Отмены и возвраты».
+          </p>
+          <div className="row">
+            <Action label="Работа принята" path={`/admin/orders/${o.id}/dispute/resolve`} body={{ outcome: 'accept_work' }} prompt="Комментарий к решению (увидят в истории заказа)" invalidate={[['order', id]]} />
+            <Action label="Отменить заказ" tone="danger" path={`/admin/orders/${o.id}/dispute/resolve`} body={{ outcome: 'cancel' }} prompt="Причина отмены" invalidate={[['order', id]]} />
+          </div>
+        </div>
+      )}
       <div className="grid grid-2">
         <div className="card"><h2>Заказ</h2>
           <dl className="kv">

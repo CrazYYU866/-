@@ -144,20 +144,21 @@ export class OrdersService implements OnModuleInit {
     await this.complete(orderId, null);
   }
 
-  private async complete(orderId: string, by: { customerId: string } | null): Promise<void> {
+  private async complete(orderId: string, by: { customerId: string } | null, admin?: { adminId: string; reason: string }): Promise<void> {
     await this.core.db.transaction(async (tx) => {
       const order = await this.core.lock(tx, orderId);
       if (by && order.customer_id !== by.customerId) throw new AppException(ERROR_CODES.NOT_FOUND, 'Заказ не найден', HttpStatus.NOT_FOUND);
-      if (order.status !== 'awaiting_completion_confirmation') {
-        if (by) throw new AppException(ERROR_CODES.ORDER_STATUS_CONFLICT, 'Заказ не ожидает подтверждения', HttpStatus.CONFLICT);
+      const expected = admin ? 'disputed' : 'awaiting_completion_confirmation';
+      if (order.status !== expected) {
+        if (by || admin) throw new AppException(ERROR_CODES.ORDER_STATUS_CONFLICT, admin ? 'По заказу нет открытого спора' : 'Заказ не ожидает подтверждения', HttpStatus.CONFLICT);
         return;
       }
       await this.core.jobs.cancel(`order:${orderId}:autocomplete`, tx);
       // Начисления исполнителю, диспетчеру и платформе — в момент окончательного завершения (Ф-1, Н-10).
       await this.settlement.settleCompletion(tx, order);
       const remaining = payableOf(order) - Number(order.paid_kopecks);
-      const actor = by ? { type: 'customer' as const, id: by.customerId } : { type: 'system' as const };
-      const reason = by ? 'Завершение подтверждено заказчиком' : 'Автоматическое завершение через 24 часа';
+      const actor = admin ? { type: 'admin' as const, id: admin.adminId } : by ? { type: 'customer' as const, id: by.customerId } : { type: 'system' as const };
+      const reason = admin ? `Спор закрыт: работа принята. ${admin.reason}` : by ? 'Завершение подтверждено заказчиком' : 'Автоматическое завершение через 24 часа';
       if (remaining > 0) {
         // Юрлицо: оставшиеся 50%; физлицо: неоплаченные дополнительные часы — в течение 24 часов, иначе долг (07, К-9, Н-28).
         const hours = await this.settings.get('final_payment_timeout_hours');
@@ -170,7 +171,32 @@ export class OrdersService implements OnModuleInit {
         await this.core.transition(tx, order, 'completed', actor, { reason, patch: [sql`completed_at = now()`, sql`auto_completed = ${!by}`] });
       }
       const staff = order.partner_org_id ? await this.core.partnerStaff(order.partner_org_id, tx) : [];
-      await this.core.events.emit({ type: 'order.completed', orderId, orgId: order.partner_org_id, userIds: [order.customer_id, ...staff], payload: { auto: !by } }, tx);
+      await this.core.events.emit({ type: 'order.completed', orderId, orgId: order.partner_org_id, userIds: [order.customer_id, ...staff], payload: { auto: !by && !admin, disputeClosed: Boolean(admin) } }, tx);
+    });
+  }
+
+  /**
+   * Закрытие спора поддержкой (С-35). Два исхода, оба по уже утверждённым правилам:
+   * «работа принята» — обычное завершение (начисления, вторая часть оплаты/долг — 07, К-9);
+   * «отменить» — отмена после оплаты, сумму возврата решает поддержка (решения 07, Ф-3).
+   * GPS-трек удаляется через 48 часов после закрытия спора (С-31).
+   */
+  async resolveDispute(orderId: string, adminId: string, outcome: 'accept_work' | 'cancel', reason: string): Promise<void> {
+    if (outcome === 'accept_work') return this.complete(orderId, null, { adminId, reason });
+    await this.core.db.transaction(async (tx) => {
+      const order = await this.core.lock(tx, orderId);
+      if (order.status !== 'disputed') throw new AppException(ERROR_CODES.ORDER_STATUS_CONFLICT, 'По заказу нет открытого спора', HttpStatus.CONFLICT);
+      const staff = order.partner_org_id ? await this.core.partnerStaff(order.partner_org_id, tx) : [];
+      const operators = await this.core.operatorsOf(orderId, tx);
+      await this.core.releaseResources(tx, orderId, 'cancelled');
+      await this.core.cancelTimers(tx, orderId);
+      await this.core.transition(tx, order, 'cancelled', { type: 'admin', id: adminId }, {
+        reason: `Спор закрыт: заказ отменён. ${reason}`,
+        patch: [sql`cancelled_at = now()`, sql`cancelled_by = 'admin'`, sql`cancellation_reason = ${reason}`],
+      });
+      await this.settlement.openCancellationReview(tx, orderId, 'admin', reason);
+      const paid = Number(order.paid_kopecks) - Number(order.refunded_kopecks);
+      await this.core.events.emit({ type: 'order.cancelled', orderId, orgId: order.partner_org_id, userIds: [order.customer_id, ...staff, ...operators], payload: { by: 'admin', supportReview: paid > 0, admin: true } }, tx);
     });
   }
 

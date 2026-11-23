@@ -281,4 +281,22 @@ describe('Этап 8: уведомления, чат, звонки, GPS, оце�
     expect((await pool.query('SELECT count(*)::int AS n FROM location_pings WHERE order_id = $1', [id])).rows[0].n).toBe(0);
     expect((await pool.query('SELECT count(*)::int AS n FROM chat_messages WHERE order_id = $1', [id])).rows[0].n).toBe(0);
   });
+
+  it('при споре GPS-трек хранится до закрытия спора, затем удаляется по общему правилу (решение по С-31)', async () => {
+    const w = await partner();
+    const c = await t.login(phone(), 'client');
+    const id = await assignedOrder(w, c.token);
+    await status(w, id, ['en_route']);
+    await t.http().post('/api/v1/partner/operator/locations').set(inOrg(w.opToken, w.orgId)).send({ orderId: id, points: [{ ...north(5), recordedAt: new Date().toISOString() }] }).expect(200);
+    await status(w, id, ['arrived', 'in_progress', 'finished']);
+    await t.http().post(`/api/v1/client/orders/${id}/dispute`).set(bearer(c.token)).send({ reason: 'Работа выполнена не полностью' }).expect(204);
+    const retention = app.get(RetentionService);
+    await pool.query("UPDATE orders SET completed_at = now() - interval '10 days' WHERE id = $1", [id]);
+    await retention.cleanup();
+    expect((await pool.query('SELECT count(*)::int AS n FROM location_pings WHERE order_id = $1', [id])).rows[0].n).toBe(1);
+    // Спор закрыт (заказ завершён) — трек больше не нужен.
+    await pool.query("UPDATE orders SET status = 'completed' WHERE id = $1", [id]);
+    await retention.cleanup();
+    expect((await pool.query('SELECT count(*)::int AS n FROM location_pings WHERE order_id = $1', [id])).rows[0].n).toBe(0);
+  });
 });

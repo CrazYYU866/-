@@ -1,9 +1,10 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ORDER_STATUSES, toCustomerVisibleStatus, type OrderStatus } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AdminAuthGuard } from '../admin/admin-auth.guard';
+import { AdminAuthGuard, AdminRoles, CurrentAdmin, type AuthAdmin } from '../admin/admin-auth.guard';
+import { AuditService } from '../audit/audit.service';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { OrderCore } from './order-core';
 import { OrdersService } from './orders.service';
@@ -15,12 +16,23 @@ const ListQuery = z.object({
 });
 
 /** Все заказы и их статусы (ТЗ §2.3: «просматривать все заказы, отслеживать статусы»). */
+const ResolveDispute = z.object({ outcome: z.enum(['accept_work', 'cancel']), reason: z.string().trim().min(3).max(2000) });
+
 @ApiTags('admin: заказы')
 @ApiBearerAuth()
 @UseGuards(AdminAuthGuard)
 @Controller('admin')
 export class AdminOrdersController {
-  constructor(private readonly core: OrderCore, private readonly orders: OrdersService) {}
+  constructor(private readonly core: OrderCore, private readonly orders: OrdersService, private readonly audit: AuditService) {}
+
+  /** Закрыть спор (С-35): «работа принята» — обычное завершение; «отменить» — отмена с решением поддержки по возврату. */
+  @Post('orders/:id/dispute/resolve')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @AdminRoles('superadmin', 'support')
+  async resolveDispute(@CurrentAdmin() a: AuthAdmin, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(ResolveDispute)) dto: z.infer<typeof ResolveDispute>): Promise<void> {
+    await this.orders.resolveDispute(id, a.adminId, dto.outcome, dto.reason);
+    await this.audit.log({ adminId: a.adminId, action: `dispute.${dto.outcome}`, entity: 'order', entityId: id, reason: dto.reason, ip: a.ip });
+  }
 
   @Get('orders')
   async list(@Query(new ZodValidationPipe(ListQuery)) q: z.infer<typeof ListQuery>) {

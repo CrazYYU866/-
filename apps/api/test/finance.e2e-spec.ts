@@ -166,6 +166,41 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect(fin.body).toEqual({ accruedKopecks: expectedPartner, paidOutKopecks: 0, balanceKopecks: expectedPartner });
   });
 
+  it('спор закрывает поддержка (С-35): «работа принята» — обычное завершение с начислениями; «отменить» — решение по возврату', async () => {
+    const support = await t.adminLogin('sup-dispute@fin.test', 'support');
+    const moderator = await t.adminLogin('mod-dispute@fin.test', 'moderator');
+
+    // 1) Работа принята.
+    const co = await company(10);
+    const cust = await customerWith('individual');
+    const a = await placeAndAccept(cust, co);
+    await pay(cust.token, a.orderId);
+    await runWork(co, a.orderId);
+    await t.http().post(`/api/v1/admin/orders/${a.orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'accept_work', reason: 'Проверено' }).expect(409);
+    await t.http().post(`/api/v1/client/orders/${a.orderId}/dispute`).set(bearer(cust.token)).send({ reason: 'Не доделали' }).expect(204);
+    await t.http().post(`/api/v1/admin/orders/${a.orderId}/dispute/resolve`).set(bearer(moderator)).send({ outcome: 'accept_work', reason: 'x'.repeat(5) }).expect(403);
+    await t.http().post(`/api/v1/admin/orders/${a.orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'accept_work', reason: 'Фото и GPS подтверждают работу' }).expect(204);
+    const done = await order(a.orderId);
+    expect(done.status).toBe('completed');
+    expect(done.completed_at).not.toBeNull();
+    expect(Number(done.commission_kopecks)).toBe(Math.round(a.total * 0.12));
+    const audit = await pool.query("SELECT action FROM admin_audit_log WHERE entity_id = $1", [a.orderId]);
+    expect(audit.rows.map((r) => r.action)).toContain('dispute.accept_work');
+
+    // 2) Отмена: деньги не двигаются автоматически, решение — через очередь возвратов.
+    const b = await placeAndAccept(cust, co);
+    await pay(cust.token, b.orderId);
+    await runWork(co, b.orderId);
+    await t.http().post(`/api/v1/client/orders/${b.orderId}/dispute`).set(bearer(cust.token)).send({ reason: 'Техника не приехала вовремя' }).expect(204);
+    await t.http().post(`/api/v1/admin/orders/${b.orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'cancel', reason: 'Работы не выполнены' }).expect(204);
+    const cancelled = await order(b.orderId);
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.cancelled_by).toBe('admin');
+    const review = await pool.query('SELECT status, initiated_by, paid_kopecks FROM cancellation_reviews WHERE order_id = $1', [b.orderId]);
+    expect(review.rows[0]).toEqual({ status: 'pending', initiated_by: 'admin', paid_kopecks: String(b.total) });
+    expect((await pool.query('SELECT count(*)::int AS n FROM refunds WHERE order_id = $1', [b.orderId])).rows[0].n).toBe(0);
+  });
+
   it('заказ независимого диспетчера: 12% = 7% диспетчеру + 5% платформе (Ф-1)', async () => {
     const co = await company(10);
     const agentOwner = await t.login(phone());
