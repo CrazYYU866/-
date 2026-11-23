@@ -12,6 +12,7 @@
     "dev": "pnpm build && node --enable-source-maps dist/main.js",
     "db:migrate": "node dist/database/migrate.cli.js",
     "admin:create": "node dist/admin/create-admin.cli.js",
+    "demo:seed": "node dist/demo/seed.cli.js",
     "test": "jest --runInBand"
   },
   "dependencies": {

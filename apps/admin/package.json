@@ -1,0 +1,28 @@
+{
+  "name": "@kovsh/admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Веб-панель администратора «Ковш на Час»",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"admin: e2e screenshots via scripts\""
+  },
+  "dependencies": {
+    "@kovsh/ui": "workspace:*",
+    "@tanstack/react-query": "^5.108.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "~5.9.3",
+    "vite": "^5.4.21"
+  }
+}
