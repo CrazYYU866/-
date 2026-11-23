@@ -78,6 +78,7 @@ npx expo export --platform web                                # веб-сбор�
 - [Подключение реальных провайдеров](docs/INTEGRATIONS.md)
 - [Оставшиеся блокеры](docs/BLOCKERS.md)
 - [Тестирование на iPhone и Android](docs/DEVICE_TESTING.md)
+- [Техническое задание с утверждёнными дополнениями](docs/TZ.md)
 - Резервное копирование и проверка восстановления: `infra/backup/`
 
 ## Тесты

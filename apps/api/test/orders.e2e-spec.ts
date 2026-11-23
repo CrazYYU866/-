@@ -503,6 +503,19 @@ describe('Этап 6: заказы и распределение', () => {
     expect(after.body.manager).toEqual({ memberId: inv[0].memberId, fullName: 'Диспетчер Передачи' });
     const log = await pool.query("SELECT count(*)::int AS n FROM order_assignments WHERE order_id = $1 AND kind = 'manager_changed'", [id]);
     expect(log.rows[0].n).toBe(1);
+
+    // С-36: отметка «Ведёт заказ» не ограничивает остальных — другой диспетчер (не ответственный) работает с заказом как раньше.
+    const p2 = phone();
+    await t.http().post('/api/v1/partner/members').set(inOrg(c.owner, c.orgId)).send({ phone: p2, role: 'dispatcher', fullName: 'Второй Диспетчер' }).expect(201);
+    const d2 = await t.login(p2);
+    const inv2 = (await t.http().get('/api/v1/partner/invitations').set(bearer(d2.token))).body;
+    await t.http().post(`/api/v1/partner/invitations/${inv2[0].memberId}/accept`).set(bearer(d2.token)).expect(204);
+    await t.http().get(`/api/v1/partner/orders/${id}`).set(inOrg(d2.token, c.orgId)).expect(200);
+    await t.http().post(`/api/v1/partner/orders/${id}/manager`).set(inOrg(d2.token, c.orgId)).send({ memberId: inv2[0].memberId }).expect(403);
+    await pay(id);
+    await t.http().post(`/api/v1/partner/orders/${id}/assign-operator`).set(inOrg(d2.token, c.orgId)).send({ memberId: c.operators[0]?.memberId }).expect(204);
+    expect(await status(id)).toBe('assigned');
+    await t.http().post(`/api/v1/partner/orders/${id}/chat`).set(inOrg(d2.token, c.orgId)).send({ body: 'Машинист назначен' }).expect(201);
   });
   it('техника с открытым предложением по другому заказу на то же время второе не получает (С-37)', async () => {
     const c = await company(10, { operators: 2 });

@@ -202,6 +202,31 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect((await pool.query('SELECT count(*)::int AS n FROM refunds WHERE order_id = $1', [b.orderId])).rows[0].n).toBe(0);
   });
 
+  it('С-35, юрлицо: «Работа принята» — исполнителю полная сумма, оставшиеся 50% к оплате за 24 часа; комментарий в журнале', async () => {
+    const support = await t.adminLogin('sup-legal-dispute@fin.test', 'support');
+    const co = await company(10);
+    const cust = await customerWith('legal');
+    await pool.query('UPDATE equipment_units SET is_online = (org_id = $1)', [co.orgId]);
+    const { orderId, total } = await placeAndAccept(cust, co);
+    await pay(cust.token, orderId);
+    await runWork(co, orderId);
+    await t.http().post(`/api/v1/client/orders/${orderId}/dispute`).set(bearer(cust.token)).send({ reason: 'Не убрали грунт' }).expect(204);
+    const finance = await t.adminLogin('fin-legal-dispute@fin.test', 'finance');
+    await t.http().post(`/api/v1/admin/orders/${orderId}/dispute/resolve`).set(bearer(finance)).send({ outcome: 'accept_work', reason: 'Проверено' }).expect(403);
+    await t.http().post(`/api/v1/admin/orders/${orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'accept_work' }).expect(400);
+    await t.http().post(`/api/v1/admin/orders/${orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'accept_work', reason: 'Фото подтверждают объём работ' }).expect(204);
+    const o = await order(orderId);
+    expect(o.status).toBe('awaiting_final_payment');
+    expect(Number(o.partner_amount_kopecks)).toBe(total - Math.round(total * 0.12) + (Number(o.partner_delivery_kopecks) - Number(o.customer_delivery_kopecks)));
+    const hours = (new Date(o.final_payment_due_at).getTime() - Date.now()) / 3_600_000;
+    expect(hours).toBeGreaterThan(23.9);
+    expect(hours).toBeLessThanOrEqual(24);
+    const remaining = total - Number(o.paid_kopecks);
+    expect(remaining).toBe(total - Math.round(total / 2));
+    const audit = await pool.query("SELECT action, reason FROM admin_audit_log WHERE entity_id = $1", [orderId]);
+    expect(audit.rows).toEqual([{ action: 'dispute.accept_work', reason: 'Фото подтверждают объём работ' }]);
+  });
+
   it('заказ независимого диспетчера: 12% = 7% диспетчеру + 5% платформе (Ф-1)', async () => {
     const co = await company(10);
     const agentOwner = await t.login(phone());
