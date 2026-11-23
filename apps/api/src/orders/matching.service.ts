@@ -253,7 +253,12 @@ export class MatchingService implements OnModuleInit {
     const period = reservation(intervals);
     const noOverlap = period
       ? [sql`NOT EXISTS (SELECT 1 FROM unit_bookings b WHERE b.unit_id = u.id AND b.status = 'active'
-          AND b.period && tstzrange(${period.starts_at.toISOString()}, ${period.ends_at.toISOString()}))`]
+          AND b.period && tstzrange(${period.starts_at.toISOString()}, ${period.ends_at.toISOString()}))`,
+        // С-37: технике с открытым предложением по другому заказу на пересекающееся время второе не выдаём —
+        // иначе принятие второго заказа упирается в занятую технику (найдено нагрузочным тестом).
+        sql`NOT EXISTS (SELECT 1 FROM order_offers f JOIN orders o2 ON o2.id = f.order_id
+          WHERE f.unit_id = u.id AND f.status = 'pending' AND f.expires_at > now() AND f.order_id <> ${order.id}
+            AND tstzrange(o2.first_start_at, o2.last_end_at) && tstzrange(${period.starts_at.toISOString()}, ${period.ends_at.toISOString()}))`]
       : [];
     const res = await tx.execute<CandidateRow>(sql`
       SELECT u.id AS unit_id, u.org_id, ST_Y(u.base_point::geometry) AS lat, ST_X(u.base_point::geometry) AS lng,

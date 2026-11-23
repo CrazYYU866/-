@@ -1,3 +1,6 @@
+import { HttpStatus } from '@nestjs/common';
+import { ERROR_CODES } from '@kovsh/contracts';
+import { AppException } from '../common/app-exception';
 import { randomUUID } from 'node:crypto';
 import type { CreatedPayment, CreatePaymentInput, PaymentEvent, PaymentProvider } from './payment.provider';
 
@@ -22,9 +25,14 @@ export class DevPaymentProvider implements PaymentProvider {
     return { providerPayoutId: `devout_${randomUUID()}`, status: 'succeeded' };
   }
 
-  parseWebhook(_headers: Record<string, string | string[] | undefined>, body: unknown): PaymentEvent {
-    const b = body as Partial<PaymentEvent>;
-    if (!b.eventId || !b.type || !b.providerPaymentId || typeof b.amountKopecks !== 'number') throw new Error('Некорректное уведомление');
-    return b as PaymentEvent;
+  async parseWebhook(_headers: Record<string, string | string[] | undefined>, body: unknown): Promise<PaymentEvent> {
+    const b = body as Record<string, unknown>;
+    const ok =
+      typeof b['eventId'] === 'string' &&
+      ((String(b['type']).startsWith('payment.') && typeof b['providerPaymentId'] === 'string' && typeof b['amountKopecks'] === 'number') ||
+        (String(b['type']).startsWith('refund.') && typeof b['providerRefundId'] === 'string') ||
+        (String(b['type']).startsWith('payout.') && typeof b['providerPayoutId'] === 'string'));
+    if (!ok) throw new AppException(ERROR_CODES.VALIDATION_FAILED, 'Некорректное уведомление', HttpStatus.BAD_REQUEST);
+    return b as unknown as PaymentEvent;
   }
 }

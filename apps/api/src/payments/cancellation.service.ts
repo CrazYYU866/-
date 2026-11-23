@@ -37,6 +37,7 @@ export class CancellationService implements OnModuleInit {
 
   onModuleInit(): void {
     this.core.jobs.register('auto_refund', (p) => this.autoRefund(String(p['orderId'])));
+    this.core.jobs.register('refund_execute', (p) => this.executeRefund(String(p['refundId'])));
   }
 
   /**
@@ -155,23 +156,54 @@ export class CancellationService implements OnModuleInit {
           ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`);
         const refundId = ins.rows[0]?.id;
         if (!refundId) continue;
-        const r = await this.provider.refund(p.provider_payment_id, amount, key);
-        await tx.execute(sql`UPDATE refunds SET status = ${r.status === 'succeeded' ? 'succeeded' : 'processing'}, provider_refund_id = ${r.providerRefundId},
-          completed_at = ${r.status === 'succeeded' ? sql`now()` : sql`NULL`} WHERE id = ${refundId}`);
-        if (r.status === 'succeeded') {
-          await this.ledger.post(tx, 'refund', `refund:${refundId}`, orderId, [
-            { account: ACC.customer(orderId), amount },
-            { account: ACC.cash(this.provider.name), amount: -amount },
-          ]);
-          await tx.execute(sql`UPDATE orders SET refunded_kopecks = refunded_kopecks + ${amount} WHERE id = ${orderId}`);
-        }
+        // Обращение к провайдеру — после фиксации транзакции, заданием (внешний вызов внутри транзакции мог бы
+        // вернуть деньги, а запись о возврате откатить). Повтор задания безопасен: ключ идемпотентности тот же.
+        await this.core.jobs.schedule('refund_execute', { refundId }, new Date(), { dedupeKey: `refund:${refundId}`, tx });
         left -= amount;
       }
     }
     if (order.status === 'refund_pending') {
-      await this.core.transition(tx, order, 'cancelled', approvedBy ? { type: 'admin', id: approvedBy } : { type: 'system' }, { reason: 'Возврат выполнен' });
+      await this.core.transition(tx, order, 'cancelled', approvedBy ? { type: 'admin', id: approvedBy } : { type: 'system' }, { reason: 'Возврат оформлен' });
     }
     await this.core.events.emit({ type: 'order.cancellation_decided', orderId, userIds: [order.customer_id], payload: { retained, refund } }, tx);
+  }
+
+  /** Передать возврат провайдеру. Итог приходит сразу или позже уведомлением (refund.succeeded / refund.cancelled). */
+  async executeRefund(refundId: string): Promise<void> {
+    const row = (await this.core.db.execute<{ status: string; provider_refund_id: string | null; amount_kopecks: string; idempotency_key: string; provider_payment_id: string }>(sql`
+      SELECT r.status, r.provider_refund_id, r.amount_kopecks, r.idempotency_key, p.provider_payment_id
+      FROM refunds r JOIN payments p ON p.id = r.payment_id WHERE r.id = ${refundId}`)).rows[0];
+    if (!row || row.status !== 'processing' || row.provider_refund_id) return;
+    const r = await this.provider.refund(row.provider_payment_id, Number(row.amount_kopecks), row.idempotency_key);
+    await this.core.db.execute(sql`UPDATE refunds SET provider_refund_id = ${r.providerRefundId} WHERE id = ${refundId}`);
+    if (r.status === 'succeeded') await this.completeRefund(refundId);
+  }
+
+  /** Возврат подтверждён провайдером: проводка и сумма возврата по заказу. Повторный вызов ничего не меняет. */
+  async completeRefund(refundId: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const r = (await tx.execute<{ order_id: string; amount_kopecks: string }>(sql`
+        UPDATE refunds SET status = 'succeeded', completed_at = now() WHERE id = ${refundId} AND status = 'processing' RETURNING order_id, amount_kopecks`)).rows[0];
+      if (!r) return;
+      const amount = Number(r.amount_kopecks);
+      await this.ledger.post(tx, 'refund', `refund:${refundId}`, r.order_id, [
+        { account: ACC.customer(r.order_id), amount },
+        { account: ACC.cash(this.provider.name), amount: -amount },
+      ]);
+      await tx.execute(sql`UPDATE orders SET refunded_kopecks = refunded_kopecks + ${amount} WHERE id = ${r.order_id}`);
+      const order = await this.core.get(r.order_id, tx);
+      await this.core.events.emit({ type: 'refund.succeeded', orderId: r.order_id, userIds: [order.customer_id], payload: { amountKopecks: amount } }, tx);
+    });
+  }
+
+  /** Провайдер отказал в возврате: отмечаем, поддержка получает задачу (деньги не считаются возвращёнными). */
+  async failRefund(refundId: string, reason: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const r = (await tx.execute<{ order_id: string }>(sql`
+        UPDATE refunds SET status = 'failed' WHERE id = ${refundId} AND status = 'processing' RETURNING order_id`)).rows[0];
+      if (!r) return;
+      await this.core.events.emit({ type: 'refund.failed', orderId: r.order_id, userIds: [], payload: { reason, admin: true } }, tx);
+    });
   }
 
   private async refundedTotal(orderId: string): Promise<number> {

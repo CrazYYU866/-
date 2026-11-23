@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConnectedSocket, MessageBody, type OnGatewayConnection, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
-import type { Server, Socket } from 'socket.io';
+import { ConnectedSocket, MessageBody, type OnGatewayConnection, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import type { Namespace, Server, Socket } from 'socket.io';
 import type { AccessTokenPayload } from '../auth/session.service';
 import { SessionService } from '../auth/session.service';
 import { OrderCore } from '../orders/order-core';
@@ -11,7 +11,7 @@ import { OrderCore } from '../orders/order-core';
  * Подключение: socket.io на /ws, токен доступа в auth.token. Комнаты: user:{id} и order:{id} (только участникам заказа).
  */
 @WebSocketGateway({ namespace: '/ws', cors: { origin: true } })
-export class RealtimeGateway implements OnGatewayConnection {
+export class RealtimeGateway implements OnGatewayConnection, OnGatewayInit {
   private readonly logger = new Logger(RealtimeGateway.name);
   @WebSocketServer() server!: Server;
 
@@ -21,16 +21,31 @@ export class RealtimeGateway implements OnGatewayConnection {
     private readonly core: OrderCore,
   ) {}
 
+  /**
+   * Проверка токена — до установки соединения (middleware Socket.IO): клиент получает «connect» только
+   * после успешной проверки, поэтому подписка сразу после подключения не теряется (раньше была гонка).
+   */
+  afterInit(server: Namespace): void {
+    server.use((socket, next) => {
+      const token = String((socket.handshake.auth as { token?: string } | undefined)?.token ?? '');
+      this.jwt
+        .verifyAsync<AccessTokenPayload>(token)
+        .then(async (payload) => {
+          if ((await this.sessions.isActive(payload.sid, payload.sub)) !== 'ok') throw new Error('session');
+          socket.data['userId'] = payload.sub;
+          next();
+        })
+        .catch(() => next(new Error('unauthorized')));
+    });
+  }
+
   async handleConnection(client: Socket): Promise<void> {
-    try {
-      const token = String((client.handshake.auth as { token?: string } | undefined)?.token ?? '');
-      const payload = await this.jwt.verifyAsync<AccessTokenPayload>(token);
-      if ((await this.sessions.isActive(payload.sid, payload.sub)) !== 'ok') throw new Error('session');
-      client.data['userId'] = payload.sub;
-      await client.join(`user:${payload.sub}`);
-    } catch {
+    const userId = client.data['userId'] as string | undefined;
+    if (!userId) {
       client.disconnect(true);
+      return;
     }
+    await client.join(`user:${userId}`);
   }
 
   @SubscribeMessage('subscribe_order')

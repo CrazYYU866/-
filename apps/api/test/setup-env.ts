@@ -14,3 +14,6 @@ process.env.ROUTING_PROVIDER = 'dev';
 process.env.PAYMENT_PROVIDER = 'dev';
 process.env.PUSH_PROVIDER = 'dev';
 process.env.TELEPHONY_PROVIDER = 'dev';
+process.env.RATE_LIMIT_PER_MIN = process.env.RATE_LIMIT_PER_MIN ?? '0';
+process.env.RATE_LIMIT_AUTH_PER_MIN = process.env.RATE_LIMIT_AUTH_PER_MIN ?? '0';
+process.env.SETTINGS_CACHE_MS = process.env.SETTINGS_CACHE_MS ?? '0';

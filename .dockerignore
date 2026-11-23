@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/.expo
+**/coverage
+.git
+apps/client
+apps/partner
+apps/admin
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+var

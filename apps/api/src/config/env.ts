@@ -47,6 +47,14 @@ const EnvSchema = z.object({
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
   TRUST_PROXY: envBool(false),
+  /** Лимит запросов с одного IP в минуту; 0 — без ограничения (технический параметр, ТЗ §19). */
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().min(0).default(600),
+  /** Лимит запросов входа (SMS-коды, токены, вход администратора) с одного IP в минуту. */
+  RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().min(0).default(30),
+  /** Документация API (Swagger). В production по умолчанию выключена. */
+  SWAGGER_ENABLED: envBool(true),
+  /** Как часто снимок настроек платформы перечитывается из БД (мс); 0 — читать при каждом обращении (только тесты). */
+  SETTINGS_CACHE_MS: z.coerce.number().int().min(0).default(5000),
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'dev') {
     ctx.addIssue({ code: 'custom', path: ['SMS_PROVIDER'], message: 'тестовый SMS-провайдер запрещён в production' });

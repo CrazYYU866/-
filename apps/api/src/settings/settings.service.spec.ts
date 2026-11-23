@@ -12,7 +12,7 @@ describe('SettingsService', () => {
 
   beforeEach(async () => {
     pool = await resetTestDatabase();
-    service = new SettingsService(drizzle(pool, { schema }));
+    service = new SettingsService(drizzle(pool, { schema }), { SETTINGS_CACHE_MS: 0 } as never);
   });
   afterEach(async () => {
     await pool.end();

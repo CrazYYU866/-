@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { FieldCipher } from '../common/crypto/field-cipher';
 import { ACC, LedgerService } from '../finance/ledger.service';
 import { OrderCore } from '../orders/order-core';
+import { SettingsService } from '../settings/settings.service';
 import { PAYMENT_PROVIDER, type PaymentProvider } from './payment.provider';
 
 const TZ = 'Europe/Moscow';
@@ -32,6 +33,7 @@ export class PayoutsService implements OnModuleInit, OnApplicationBootstrap {
     private readonly cipher: FieldCipher,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     @Inject(APP_ENV) private readonly env: AppEnv,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Первое ежедневное задание ставится при старте (ключ не даёт поставить дубль). */
@@ -54,8 +56,10 @@ export class PayoutsService implements OnModuleInit, OnApplicationBootstrap {
 
   /** Начисления, созревшие к выплате: завершены или решены до начала текущих суток (МСК). */
   async run(): Promise<{ payouts: number; blocked: number }> {
+    // «today.start» — граница: выплачивается то, что созрело раньше начала суток (МСК) минус (задержка − 1) дней.
+    const delay = await this.settings.get('payout_delay_days');
     const accruals = await this.core.db.execute<Accrual>(sql`
-      WITH today AS (SELECT (date_trunc('day', now() AT TIME ZONE ${TZ}) AT TIME ZONE ${TZ}) AS start)
+      WITH today AS (SELECT (date_trunc('day', now() AT TIME ZONE ${TZ}) AT TIME ZONE ${TZ}) - (${delay - 1} * interval '1 day') AS start)
       SELECT o.id AS order_id, o.partner_org_id AS org_id, 'partner' AS kind, 'completion' AS source, o.partner_amount_kopecks AS amount
         FROM orders o, today WHERE o.settled_at IS NOT NULL AND o.completed_at < today.start
           AND o.status IN ('completed', 'awaiting_final_payment') AND o.partner_amount_kopecks > 0
@@ -119,17 +123,36 @@ export class PayoutsService implements OnModuleInit, OnApplicationBootstrap {
       amountKopecks: amount, bik: account.bik, accountNumber: this.cipher.decrypt(account.account_number_enc), recipientInn: account.inn,
       idempotencyKey: `payout:${payoutId}`, description: `Выплата «Ковш на Час» за ${date}`,
     });
-    await this.core.db.transaction(async (tx) => {
-      await tx.execute(sql`UPDATE payouts SET provider_payout_id = ${r.providerPayoutId}, status = ${r.status === 'succeeded' ? 'paid' : 'processing'},
-        paid_at = ${r.status === 'succeeded' ? sql`now()` : sql`NULL`} WHERE id = ${payoutId}`);
-      if (r.status === 'succeeded') {
-        await this.ledger.post(tx, 'payout', `payout:${payoutId}`, null, [
-          { account: kind === 'partner' ? ACC.partner(orgId) : ACC.agent(orgId), amount },
-          { account: ACC.cash(this.provider.name), amount: -amount },
-        ], { orgId, kind, date });
-      }
-    });
+    await this.core.db.execute(sql`UPDATE payouts SET provider_payout_id = ${r.providerPayoutId} WHERE id = ${payoutId}`);
+    // Выплата у реального провайдера может завершиться позже — тогда итог придёт уведомлением (payout.succeeded / payout.cancelled).
+    if (r.status === 'succeeded') await this.completePayout(payoutId);
     this.logger.log(`Выплата ${kind} ${orgId}: ${amount} коп.`);
     return true;
+  }
+
+  /** Выплата подтверждена провайдером: проводка по счёту исполнителя/диспетчера. Повторный вызов ничего не меняет. */
+  async completePayout(payoutId: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const p = (await tx.execute<{ org_id: string; kind: 'partner' | 'agent'; amount_kopecks: string; payout_date: string }>(sql`
+        UPDATE payouts SET status = 'paid', paid_at = now() WHERE id = ${payoutId} AND status = 'processing'
+        RETURNING org_id, kind, amount_kopecks, payout_date::text AS payout_date`)).rows[0];
+      if (!p) return;
+      const amount = Number(p.amount_kopecks);
+      await this.ledger.post(tx, 'payout', `payout:${payoutId}`, null, [
+        { account: p.kind === 'partner' ? ACC.partner(p.org_id) : ACC.agent(p.org_id), amount },
+        { account: ACC.cash(this.provider.name), amount: -amount },
+      ], { orgId: p.org_id, kind: p.kind, date: p.payout_date });
+    });
+  }
+
+  /** Провайдер не смог выплатить (например, неверные реквизиты): выплата отмечается, финансист получает задачу. */
+  async failPayout(payoutId: string, reason: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const p = (await tx.execute<{ org_id: string }>(sql`
+        UPDATE payouts SET status = 'failed', status_reason = ${reason} WHERE id = ${payoutId} AND status = 'processing' RETURNING org_id`)).rows[0];
+      if (!p) return;
+      const staff = await this.core.partnerStaff(p.org_id, tx);
+      await this.core.events.emit({ type: 'payout.failed', orgId: p.org_id, userIds: staff, payload: { reason, admin: true } }, tx);
+    });
   }
 }

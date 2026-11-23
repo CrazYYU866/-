@@ -104,14 +104,24 @@ export class PaymentsService {
     return res.rows.map(toView);
   }
 
-  /** Уведомление провайдера. Повторная доставка того же события ничего не меняет. */
-  async handleWebhook(headers: Record<string, string | string[] | undefined>, body: unknown): Promise<void> {
-    const event = this.provider.parseWebhook(headers, body);
+  /**
+   * Уведомление провайдера: проверка, защита от повторной доставки и разбор по типу объекта.
+   * Возвраты и выплаты обрабатывают свои сервисы (передаются обработчиками, чтобы не связывать модули по кругу).
+   */
+  async handleWebhook(
+    headers: Record<string, string | string[] | undefined>,
+    body: unknown,
+    sourceIp: string | undefined,
+    handlers: { refund: (e: Extract<PaymentEvent, { providerRefundId: string }>) => Promise<void>; payout: (e: Extract<PaymentEvent, { providerPayoutId: string }>) => Promise<void> },
+  ): Promise<void> {
+    const event = await this.provider.parseWebhook(headers, body, sourceIp);
     const fresh = await this.core.db.execute<{ id: number }>(sql`
       INSERT INTO payment_webhook_events (provider, event_id, payload) VALUES (${this.provider.name}, ${event.eventId}, ${JSON.stringify(event)}::jsonb)
       ON CONFLICT (provider, event_id) DO NOTHING RETURNING id`);
     if (!fresh.rows[0]) return;
-    await this.applyEvent(event);
+    if ('providerPaymentId' in event) await this.applyEvent(event);
+    else if ('providerRefundId' in event) await handlers.refund(event);
+    else await handlers.payout(event);
     await this.core.db.execute(sql`UPDATE payment_webhook_events SET processed_at = now() WHERE provider = ${this.provider.name} AND event_id = ${event.eventId}`);
   }
 
@@ -127,7 +137,7 @@ export class PaymentsService {
     return payment.id;
   }
 
-  private async applyEvent(event: PaymentEvent): Promise<void> {
+  private async applyEvent(event: Extract<PaymentEvent, { providerPaymentId: string }>): Promise<void> {
     const res = await this.core.db.execute<PaymentRow>(sql`SELECT * FROM payments WHERE provider = ${this.provider.name} AND provider_payment_id = ${event.providerPaymentId}`);
     const payment = res.rows[0];
     if (!payment) {
@@ -175,6 +185,16 @@ export class PaymentsService {
     if (finalPaid) this.logger.log(`Заказ ${payment.order_id}: оплачена оставшаяся часть`);
   }
 
+  /** Найти возврат или выплату по идентификатору провайдера (для уведомлений). */
+  async findByProviderId(kind: 'refund' | 'payout', providerId: string): Promise<string | null> {
+    const q = kind === 'refund'
+      ? sql`SELECT id FROM refunds WHERE provider_refund_id = ${providerId}`
+      : sql`SELECT id FROM payouts WHERE provider_payout_id = ${providerId}`;
+    const res = await this.core.db.execute<{ id: string }>(q);
+    if (!res.rows[0]) this.logger.warn(`Уведомление о неизвестном объекте провайдера ${providerId}`);
+    return res.rows[0]?.id ?? null;
+  }
+
   /** Тестовая оплата (только dev-провайдер): имитирует уведомление провайдера. */
   async devComplete(providerPaymentId: string, result: 'succeeded' | 'cancelled'): Promise<void> {
     if (this.provider.name !== 'dev') throw new AppException(ERROR_CODES.NOT_FOUND, 'Не найдено', HttpStatus.NOT_FOUND);
@@ -184,6 +204,6 @@ export class PaymentsService {
     await this.handleWebhook({}, {
       eventId: `${providerPaymentId}:${result}`, type: result === 'succeeded' ? 'payment.succeeded' : 'payment.cancelled',
       providerPaymentId, amountKopecks: Number(p.amount_kopecks),
-    });
+    }, undefined, { refund: async () => undefined, payout: async () => undefined });
   }
 }

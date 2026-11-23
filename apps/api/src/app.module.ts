@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { AdminModule } from './admin/admin.module';
@@ -17,6 +17,7 @@ import { PricingModule } from './pricing/pricing.module';
 import { CommonModule } from './common/common.module';
 import { FilesModule } from './files/files.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { RateLimitGuard } from './common/rate-limit.guard';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { ConfigModule } from './config/config.module';
 import { loadEnv } from './config/env';
@@ -34,7 +35,8 @@ const env = loadEnv();
         level: env.LOG_LEVEL,
         genReqId: (req) => (req.headers['x-request-id'] as string | undefined) ?? randomUUID(),
         redact: ['req.headers.authorization', 'req.headers.cookie'],
-        ...(env.NODE_ENV === 'development' ? { transport: { target: 'pino-pretty' } } : {}),
+        // Читаемые логи — только при разработке и только если пакет установлен (в образе сервера его нет: там JSON-логи).
+        ...(env.NODE_ENV === 'development' && hasModule('pino-pretty') ? { transport: { target: 'pino-pretty' } } : {}),
         autoLogging: env.NODE_ENV !== 'test',
       },
     }),
@@ -59,6 +61,15 @@ const env = loadEnv();
     AgentModule,
     CommsModule,
   ],
-  providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],
+  providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }, { provide: APP_GUARD, useClass: RateLimitGuard }],
 })
 export class AppModule {}
+
+function hasModule(name: string): boolean {
+  try {
+    require.resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
+}

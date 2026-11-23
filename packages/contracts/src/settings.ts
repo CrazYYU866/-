@@ -46,6 +46,8 @@ export const SETTINGS_REGISTRY = {
   platform_commission_percent: { schema: percent, default: 12, source: 'Ф-1' },
   /** Вознаграждение независимого диспетчера — процент от полной суммы заказа, внутри общей комиссии (Ф-1). */
   agent_commission_percent: { schema: percent, default: 7, source: 'Ф-1' },
+  /** Через сколько календарных суток после завершения начисление выплачивается (Н-10: на следующий день = 1). */
+  payout_delay_days: { schema: positiveInt, default: 1, source: 'Н-10, ТЗ §22' },
   first_order_promo_percent: { schema: percent, default: 10, source: 'В-33' },
   support_refund_limit_kopecks: { schema: nonNegativeInt, default: 1_000_000, source: 'К-14' },
 

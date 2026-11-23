@@ -4,6 +4,7 @@ import type Redis from 'ioredis';
 import type { Pool } from 'pg';
 import { createApp } from '../src/app.factory';
 import { JobsService } from '../src/jobs/jobs.service';
+import { PAYMENT_PROVIDER, type PaymentProvider } from '../src/payments/payment.provider';
 import { REDIS } from '../src/redis/redis.module';
 import { resetTestDatabase } from './db';
 import { innLegal, ogrnLegal, TestClient } from './helpers';
@@ -269,6 +270,8 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     const pendingApproval = await t.http().get(`/api/v1/client/orders/${orderId}`).set(bearer(cust.token)).expect(200);
     expect(pendingApproval.body.refundReview.status).toBe('in_review');
     await t.http().post(`/api/v1/admin/cancellation-reviews/${orderId}/approve`).set(bearer(finance)).expect(200);
+    // Возврат передаётся провайдеру заданием после фиксации решения.
+    await jobs.runDue();
     const after = await t.http().get(`/api/v1/client/orders/${orderId}`).set(bearer(cust.token)).expect(200);
     expect(after.body.refundReview).toMatchObject({ status: 'decided', decision: 'partial_refund', refundKopecks: total - retained, reason: 'Техника выехала' });
 
@@ -323,6 +326,66 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect(Number(o.paid_kopecks)).toBeGreaterThan(0);
     expect((await pool.query('SELECT count(*)::int AS n FROM cancellation_reviews WHERE order_id = $1', [orderId])).rows[0].n).toBe(0);
     expect(await balance(`customer:${orderId}`)).toBe(0);
+  });
+
+  it('асинхронные возвраты и выплаты: «в обработке», итог — уведомлением провайдера; повтор уведомления ничего не меняет', async () => {
+    const provider = app.get<PaymentProvider>(PAYMENT_PROVIDER);
+    const origRefund = provider.refund.bind(provider);
+    const origPayout = provider.payout.bind(provider);
+    provider.refund = async (_id, _amount, key) => ({ providerRefundId: `async-${key}`, status: 'pending' });
+    provider.payout = async (input) => ({ providerPayoutId: `async-${input.idempotencyKey}`, status: 'pending' });
+    try {
+      // Возврат: отмена после оплаты, поддержка возвращает всё.
+      const co = await company(10);
+      const cust = await customerWith('individual');
+      await pool.query('UPDATE equipment_units SET is_online = (org_id = $1)', [co.orgId]);
+      const { orderId, total } = await placeAndAccept(cust, co);
+      await pay(cust.token, orderId);
+      await t.http().post(`/api/v1/client/orders/${orderId}/cancel`).set(bearer(cust.token)).send({}).expect(204);
+      const support = await t.adminLogin('sup-async@fin.test', 'support');
+      // Сумма в пределах лимита поддержки не нужна: проверяем путь с подтверждением, если сумма больше лимита.
+      await t.http().post(`/api/v1/admin/cancellation-reviews/${orderId}/decide`).set(bearer(support)).send({ retainedKopecks: total - 500_000, reason: 'Частичный возврат' }).expect(200);
+      await jobs.runDue();
+      const r = (await pool.query('SELECT id, status, provider_refund_id FROM refunds WHERE order_id = $1', [orderId])).rows[0];
+      expect(r.status).toBe('processing');
+      expect(Number((await order(orderId)).refunded_kopecks)).toBe(0);
+      const hook = { eventId: `evt-${r.id}`, type: 'refund.succeeded', providerRefundId: r.provider_refund_id };
+      await t.http().post('/api/v1/webhooks/payments/dev').send(hook).expect(200);
+      await t.http().post('/api/v1/webhooks/payments/dev').send(hook).expect(200);
+      expect((await pool.query('SELECT status FROM refunds WHERE id = $1', [r.id])).rows[0].status).toBe('succeeded');
+      expect(Number((await order(orderId)).refunded_kopecks)).toBe(500_000);
+      expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'refund' AND order_id = $1", [orderId])).rows[0].n).toBe(1);
+
+      // Выплата: «в обработке» → отклонена провайдером → без проводки; другая — подтверждена → проводка.
+      const done = async () => {
+        const c2 = await customerWith('individual');
+        const { orderId: oid } = await placeAndAccept(c2, co);
+        await pay(c2.token, oid);
+        await runWork(co, oid);
+        await t.http().post(`/api/v1/client/orders/${oid}/confirm-completion`).set(bearer(c2.token)).expect(204);
+        await pool.query("UPDATE orders SET completed_at = now() - interval '2 days' WHERE id = $1", [oid]);
+        return oid;
+      };
+      const o1 = await done();
+      const finance = await t.adminLogin('fin-async@fin.test', 'finance');
+      await t.http().post('/api/v1/admin/payouts/run').set(bearer(finance)).expect(200);
+      const p1 = (await pool.query('SELECT p.id, p.status, p.provider_payout_id FROM payouts p JOIN payout_items i ON i.payout_id = p.id WHERE i.order_id = $1', [o1])).rows[0];
+      expect(p1.status).toBe('processing');
+      const payoutsBefore = (await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n;
+      await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${p1.id}-x`, type: 'payout.cancelled', providerPayoutId: p1.provider_payout_id, reason: 'Счёт закрыт' }).expect(200);
+      expect((await pool.query('SELECT status, status_reason FROM payouts WHERE id = $1', [p1.id])).rows[0]).toEqual({ status: 'failed', status_reason: 'Счёт закрыт' });
+      expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n).toBe(payoutsBefore);
+      // Повторное уведомление «успешно» по уже отклонённой выплате ничего не проводит.
+      await t.http().post('/api/v1/webhooks/payments/dev').send({ eventId: `evt-${p1.id}-y`, type: 'payout.succeeded', providerPayoutId: p1.provider_payout_id }).expect(200);
+      expect((await pool.query("SELECT count(*)::int AS n FROM ledger_transactions WHERE kind = 'payout'")).rows[0].n).toBe(payoutsBefore);
+    } finally {
+      provider.refund = origRefund;
+      provider.payout = origPayout;
+    }
+  });
+
+  it('некорректное уведомление провайдера отклоняется', async () => {
+    await t.http().post('/api/v1/webhooks/payments/dev').send({ type: 'refund.succeeded' }).expect(400);
   });
 
   it('выплата на следующий день: один раз; без реквизитов — не создаётся (Н-10)', async () => {

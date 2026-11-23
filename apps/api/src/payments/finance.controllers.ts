@@ -164,12 +164,25 @@ export class ClientFinanceController {
 @ApiTags('webhooks')
 @Controller('webhooks/payments')
 export class PaymentWebhooksController {
-  constructor(private readonly payments: PaymentsService) {}
+  constructor(private readonly payments: PaymentsService, private readonly cancellations: CancellationService, private readonly payouts: PayoutsService) {}
 
   @Post(':provider')
   @HttpCode(HttpStatus.OK)
   async handle(@Req() req: Request): Promise<{ ok: true }> {
-    await this.payments.handleWebhook(req.headers, req.body);
+    await this.payments.handleWebhook(req.headers, req.body, req.ip, {
+      refund: async (e) => {
+        const id = (await this.payments.findByProviderId('refund', e.providerRefundId));
+        if (!id) return;
+        if (e.type === 'refund.succeeded') await this.cancellations.completeRefund(id);
+        else await this.cancellations.failRefund(id, e.reason ?? 'Провайдер отменил возврат');
+      },
+      payout: async (e) => {
+        const id = (await this.payments.findByProviderId('payout', e.providerPayoutId));
+        if (!id) return;
+        if (e.type === 'payout.succeeded') await this.payouts.completePayout(id);
+        else await this.payouts.failPayout(id, e.reason ?? 'Провайдер отменил выплату');
+      },
+    });
     return { ok: true };
   }
 }

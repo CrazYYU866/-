@@ -164,6 +164,30 @@ describe('Этап 8: уведомления, чат, звонки, GPS, оце�
     stranger.disconnect();
   });
 
+  it('несколько экземпляров сервера: событие, отправленное через один, доходит до клиента, подключённого к другому', async () => {
+    const second = await createApp();
+    await second.listen(0);
+    const port2 = (second.getHttpServer().address() as AddressInfo).port;
+    try {
+      const w = await partner();
+      const c = await t.login(phone(), 'client');
+      const id = await assignedOrder(w, c.token);
+      const s = await new Promise<Socket>((resolve, reject) => {
+        const sock = io(`http://127.0.0.1:${port2}/ws`, { auth: { token: w.opToken }, transports: ['websocket'], forceNew: true });
+        sock.on('connect', () => resolve(sock));
+        sock.on('connect_error', reject);
+      });
+      expect(await s.emitWithAck('subscribe_order', { orderId: id })).toEqual({ ok: true });
+      const got = new Promise<{ body: string }>((resolve) => s.on('chat.message', resolve));
+      // Сообщение уходит через первый экземпляр.
+      await t.http().post(`/api/v1/client/orders/${id}/chat`).set(bearer(c.token)).send({ body: 'Через другой сервер' }).expect(201);
+      expect((await got).body).toBe('Через другой сервер');
+      s.disconnect();
+    } finally {
+      await second.close();
+    }
+  });
+
   it('звонки через подменный номер: до выезда — диспетчеру, после — машинисту; реальный номер не раскрывается', async () => {
     const w = await partner();
     const c = await t.login(phone(), 'client');

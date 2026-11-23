@@ -504,4 +504,17 @@ describe('Этап 6: заказы и распределение', () => {
     const log = await pool.query("SELECT count(*)::int AS n FROM order_assignments WHERE order_id = $1 AND kind = 'manager_changed'", [id]);
     expect(log.rows[0].n).toBe(1);
   });
+  it('техника с открытым предложением по другому заказу на то же время второе не получает (С-37)', async () => {
+    const c = await company(10, { operators: 2 });
+    const first = await order();
+    expect((await pendingOffer(first))?.org_id).toBe(c.orgId);
+    const second = await order();
+    expect(await pendingOffer(second)).toBeUndefined();
+    expect(await status(second)).toBe('searching');
+    // Первое предложение пропущено — техника снова доступна, второй заказ её получает.
+    const off = await pendingOffer(first);
+    await t.http().post(`/api/v1/partner/offers/${off?.id}/skip`).set(inOrg(c.owner, c.orgId)).expect(204);
+    await fire('search_tick', second);
+    expect((await pendingOffer(second))?.org_id).toBe(c.orgId);
+  });
 });
