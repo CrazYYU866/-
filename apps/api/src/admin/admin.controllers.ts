@@ -14,6 +14,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { DevSmsProvider } from '../auth/sms/dev-sms.provider';
+import { SMS_PROVIDER, type SmsProvider } from '../auth/sms/sms.provider';
 import {
   AdminLoginSchema,
   BlockUserSchema,
@@ -295,5 +297,24 @@ export class AdminAuditController {
     const q = this.db.select().from(adminAuditLog);
     const where = entity && entityId ? eq(adminAuditLog.entityId, entityId) : entity ? eq(adminAuditLog.entity, entity) : undefined;
     return q.where(where).orderBy(desc(adminAuditLog.id)).limit(500);
+  }
+}
+
+/**
+ * Тестовые SMS (только тестовый стенд): пока SMS-провайдер не подключён, коды входа для тестирования на телефонах
+ * смотрят здесь. В production тестовый провайдер запрещён — раздел недоступен.
+ */
+@ApiTags('admin: тестовый стенд')
+@ApiBearerAuth()
+@UseGuards(AdminAuthGuard)
+@Controller('admin/dev/sms')
+export class AdminDevSmsController {
+  constructor(@Inject(SMS_PROVIDER) private readonly sms: SmsProvider) {}
+
+  @Get()
+  @AdminRoles('superadmin')
+  async list() {
+    if (!(this.sms instanceof DevSmsProvider)) throw new AppException(ERROR_CODES.NOT_FOUND, 'Раздел доступен только на тестовом стенде', HttpStatus.NOT_FOUND);
+    return this.sms.recent(100);
   }
 }

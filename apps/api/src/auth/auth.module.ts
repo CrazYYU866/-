@@ -11,6 +11,8 @@ import { OtpService } from './otp.service';
 import { SessionService } from './session.service';
 import { DevSmsProvider } from './sms/dev-sms.provider';
 import { SMS_PROVIDER } from './sms/sms.provider';
+import type Redis from 'ioredis';
+import { REDIS } from '../redis/redis.module';
 
 @Global()
 @Module({
@@ -29,11 +31,11 @@ import { SMS_PROVIDER } from './sms/sms.provider';
     JwtAuthGuard,
     {
       provide: SMS_PROVIDER,
-      inject: [APP_ENV],
-      useFactory: (env: AppEnv) => {
+      inject: [APP_ENV, REDIS],
+      useFactory: (env: AppEnv, redis: Redis) => {
         switch (env.SMS_PROVIDER) {
           case 'dev':
-            return new DevSmsProvider();
+            return new DevSmsProvider(redis);
         }
       },
     },

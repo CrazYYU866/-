@@ -10,7 +10,7 @@ import { DocumentsPage, EquipmentCardPage, EquipmentPage } from './pages/Moderat
 import { OrderPage, OrdersPage } from './pages/Orders';
 import { CancellationsPage, FinancePage } from './pages/Finance';
 import { CatalogPage, RegionsPage, TariffsPage } from './pages/Catalog';
-import { AdminsPage, AuditPage, BroadcastPage, PromoPage, RatingComplaintsPage, SettingsPage, UsersPage } from './pages/System';
+import { AdminsPage, AuditPage, BroadcastPage, DevSmsPage, PromoPage, RatingComplaintsPage, SettingsPage, UsersPage } from './pages/System';
 import './styles.css';
 
 type Role = Session['admin']['role'];
@@ -39,6 +39,7 @@ const NAV: { group: string; items: { to: string; label: string; roles?: Role[]; 
     { to: '/settings', label: 'Настройки', roles: ['superadmin', 'finance'] },
     { to: '/admins', label: 'Администраторы', roles: ['superadmin'] },
     { to: '/audit', label: 'Журнал действий', roles: ['superadmin'] },
+    { to: '/dev-sms', label: 'Тестовые SMS', roles: ['superadmin'] },
   ] },
 ];
 
@@ -108,6 +109,7 @@ function App() {
         <Route path="/settings" element={<SettingsPage role={session.admin.role} />} />
         <Route path="/admins" element={<AdminsPage />} />
         <Route path="/audit" element={<AuditPage />} />
+        <Route path="/dev-sms" element={<DevSmsPage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Shell>

@@ -156,3 +156,20 @@ export function BroadcastPage() {
     </>
   );
 }
+
+/** Тестовый стенд: SMS тестового провайдера (коды входа для тестировщиков, пока SMS-провайдер не подключён). */
+export function DevSmsPage() {
+  const q = useQuery({ queryKey: ['dev-sms'], queryFn: () => api<{ phone: string; text: string; at: string }[]>('/admin/dev/sms'), refetchInterval: 5000, retry: false });
+  return (
+    <>
+      <h1>Тестовые SMS</h1>
+      <p className="muted">Только тестовый стенд: реальные SMS не отправляются, коды входа видны здесь. В рабочей версии раздела нет.</p>
+      {q.error ? <ErrorBox error={q.error} /> : (
+        <div className="card"><Table rows={q.data} empty="Сообщений пока нет" cols={[
+          { h: 'Когда', c: (m) => <DateTime v={m.at} /> }, { h: 'Телефон', c: (m) => <span className="mono">{m.phone}</span> },
+          { h: 'Текст', c: (m) => m.text },
+        ]} /></div>
+      )}
+    </>
+  );
+}

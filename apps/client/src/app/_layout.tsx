@@ -1,15 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ApiError, configureApi, Loading, SessionProvider, useSession, useTheme } from '@kovsh/mobile';
+import { ApiError, configureApi, Loading, SessionProvider, usePushNavigation, usePushRegistration, useSession, useTheme } from '@kovsh/mobile';
+import { useCallback, useState } from 'react';
 
 configureApi('client');
 
 function RootStack() {
   const { session, ready } = useSession();
   const t = useTheme();
+  usePushRegistration(session?.user.id);
+  usePushNavigation(useCallback((d: { orderId?: string }) => {
+    if (d.orderId) router.push({ pathname: '/order/[id]', params: { id: d.orderId } });
+  }, []));
   if (!ready) return <Loading />;
   return (
     <Stack

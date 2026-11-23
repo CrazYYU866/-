@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { pointForStatus, startTracking, stopTracking } from '../../lib/gps';
+import { needsBackgroundDisclosure, pointForStatus, startTracking, stopTracking } from '../../lib/gps';
 import { useOrg } from '../../lib/org';
 import { enqueueStatus, flushQueue, pendingStatusCount } from '../../lib/queue';
 import { SHIFT_LABEL, type PartnerOrder } from '../../lib/types';
@@ -42,11 +42,12 @@ export default function ShiftScreen() {
   const next = NEXT[status];
   const cancelled = o && ['cancelled', 'cancelled_unpaid', 'refund_pending', 'search_failed'].includes(o.status);
 
+  const [disclosure, setDisclosure] = useState(false);
   const press = useMutation({
-    mutationFn: async (step: Step) => {
+    mutationFn: async ({ step, background = true }: { step: Step; background?: boolean }) => {
       setGpsNote(null);
       if (step === 'en_route') {
-        const r = await startTracking(id, current!.orgId);
+        const r = await startTracking(id, current!.orgId, background);
         if (!r.ok) setGpsNote(r.reason === 'permission_denied' ? 'Нет доступа к геолокации — заказчик не увидит, где вы. Разрешите доступ в настройках телефона.' : 'Геолокация выключена. Включите её, чтобы заказчик видел, где вы.');
         else if (!r.background && Platform.OS !== 'web') setGpsNote('Разрешите доступ к геолокации «Всегда», иначе при свёрнутом приложении координаты не передаются.');
       }
@@ -80,10 +81,23 @@ export default function ShiftScreen() {
 
       {!cancelled && next && o.status !== 'awaiting_prepayment' ? (
         <View style={{ gap: space.sm }}>
-          <Button title={next.label} loading={press.isPending} onPress={() => press.mutate(next.step)} />
+          <Button title={next.label} loading={press.isPending} onPress={async () => {
+            if (next.step === 'en_route' && (await needsBackgroundDisclosure())) setDisclosure(true);
+            else press.mutate({ step: next.step });
+          }} />
           <T v="small" muted center>{next.hint}</T>
           {press.error ? <Notice tone="danger">{(press.error as Error).message}</Notice> : null}
         </View>
+      ) : null}
+      {disclosure ? (
+        <Card accent>
+          <T v="h3">Геолокация в пути</T>
+          <T>Пока вы едете к объекту, приложение передаёт ваше местоположение заказчику и диспетчеру — в том числе когда приложение свёрнуто или экран заблокирован.</T>
+          <T>Передача начинается после «Выехал» и прекращается после «Прибыл». В другое время местоположение не собирается. Трек хранится 48 часов после завершения заказа.</T>
+          <T v="small" muted>Далее телефон спросит разрешение — выберите «Разрешить всегда» (Android) или «Всегда» (iPhone).</T>
+          <Button title="Продолжить" onPress={() => { setDisclosure(false); press.mutate({ step: 'en_route' }); }} />
+          <Button kind="ghost" title="Только пока приложение открыто" onPress={() => { setDisclosure(false); press.mutate({ step: 'en_route', background: false }); }} />
+        </Card>
       ) : null}
       {status === 'finished' ? <Notice tone="success">Смена завершена. Спасибо!</Notice> : null}
 

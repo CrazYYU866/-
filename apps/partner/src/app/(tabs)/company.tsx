@@ -1,4 +1,4 @@
-import { auth, Button, Card, maskPhone, Notice, Pill, post, Row, Screen, Section, space, T, useTheme } from '@kovsh/mobile';
+import { auth, unregisterPush, Button, Card, maskPhone, Notice, Pill, post, Row, Screen, Section, space, T, useTheme } from '@kovsh/mobile';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
@@ -28,6 +28,7 @@ export default function Company() {
   const missing = (o?.documents ?? []).filter((d) => d.required && d.status === 'missing').length;
 
   async function logout() {
+    await unregisterPush();
     try { await post('/auth/logout'); } catch { /* сессию забываем в любом случае */ }
     qc.clear();
     await auth.set(null);

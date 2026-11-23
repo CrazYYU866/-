@@ -1,3 +1,4 @@
+import { AuthModule } from '../auth/auth.module';
 import { Global, Module } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { APP_ENV } from '../config/config.module';
@@ -9,6 +10,7 @@ import {
   AdminAuthController,
   AdminModerationController,
   AdminSettingsController,
+  AdminDevSmsController,
 } from './admin.controllers';
 import { AdminAuthGuard } from './admin-auth.guard';
 import { ADMIN_JWT, AdminAuthService } from './admin-auth.service';
@@ -16,8 +18,8 @@ import { ModerationService } from './moderation.service';
 
 @Global()
 @Module({
-  imports: [OrganizationsModule],
-  controllers: [AdminAuthController, AdminAdminsController, AdminSettingsController, AdminModerationController, AdminAuditController],
+  imports: [OrganizationsModule, AuthModule],
+  controllers: [AdminDevSmsController, AdminAuthController, AdminAdminsController, AdminSettingsController, AdminModerationController, AdminAuditController],
   providers: [
     AdminAuthService,
     AdminAuthGuard,

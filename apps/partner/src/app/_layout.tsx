@@ -1,12 +1,12 @@
 import '../lib/gps';
-import { ApiError, configureApi, Loading, SessionProvider, useSession, useTheme } from '@kovsh/mobile';
+import { ApiError, configureApi, Loading, SessionProvider, usePushNavigation, usePushRegistration, useSession, useTheme } from '@kovsh/mobile';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { OrgProvider, useOrg } from '../lib/org';
+import { can, OrgProvider, useOrg } from '../lib/org';
 import { flushQueue } from '../lib/queue';
 
 configureApi('partner');
@@ -15,6 +15,15 @@ function RootStack() {
   const { session, ready } = useSession();
   const org = useOrg();
   const t = useTheme();
+  usePushRegistration(session?.user.id);
+  const role = can(org.current);
+  // Нажатие на уведомление: предложение — к списку предложений; события смены — машинисту; остальное — карточка заказа.
+  usePushNavigation(useCallback((d: { type?: string; orderId?: string }) => {
+    if (d.type?.startsWith('offer.')) return router.push('/offers');
+    if (!d.orderId) return;
+    if (role.operate && !role.dispatch) router.push({ pathname: '/shift/[id]', params: { id: d.orderId } });
+    else router.push({ pathname: '/order/[id]', params: { id: d.orderId } });
+  }, [role.operate, role.dispatch]));
   // Накопленные без связи статусы и координаты отправляются при возврате в приложение и периодически.
   useEffect(() => {
     if (!session) return;

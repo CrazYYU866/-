@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Field, Notice, T } from './ui';
-import { ApiError, auth, currentApp, post, type Session } from './api';
+import Constants from 'expo-constants';
+import { API_NOT_CONFIGURED, API_URL, ApiError, auth, currentApp, post, type Session } from './api';
 import { maskPhone, normalizePhone } from './format';
 import { font, radius, space, useTheme } from './theme';
 
@@ -106,6 +107,8 @@ export function LoginScreen({ title, subtitle }: { title: string; subtitle: stri
             </View>
           </View>
         )}
+        {API_NOT_CONFIGURED ? <Notice tone="danger">Сборка без адреса сервера (EXPO_PUBLIC_API_URL). Обратитесь к разработчику.</Notice> : null}
+        <T v="small" muted center>Версия {Constants.expoConfig?.version ?? '—'}{API_URL ? ` · ${API_URL.replace(/^https?:\/\//, '')}` : ''}</T>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

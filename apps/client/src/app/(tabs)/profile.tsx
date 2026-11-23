@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, Field, Notice, Row, Screen, Section, T } from '@kovsh/mobile';
-import { api, auth, post } from '@kovsh/mobile';
+import { api, auth, post, unregisterPush } from '@kovsh/mobile';
 import { maskPhone, rub } from '@kovsh/mobile';
 import { space } from '@kovsh/mobile';
 
@@ -25,6 +25,7 @@ export default function Profile() {
   const openDebts = (debts.data ?? []).filter((d) => d.status === 'open');
 
   async function logout() {
+    await unregisterPush();
     try { await post('/auth/logout'); } catch { /* сессию всё равно забываем на устройстве */ }
     qc.clear();
     await auth.set(null);

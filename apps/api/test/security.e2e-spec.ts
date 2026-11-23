@@ -103,6 +103,15 @@ describe('Безопасность API', () => {
     expect(res.headers['x-powered-by']).toBeUndefined();
   });
 
+  it('тестовые SMS (тестовый стенд): видит только суперадмин', async () => {
+    await t.http().post('/api/v1/auth/otp/request').send({ phone: '+79990009010', app: 'client' }).expect(200);
+    const root = await t.adminLogin('root@sec.test', 'superadmin');
+    const support = await t.adminLogin('sup@sec.test', 'support');
+    const list = await t.http().get('/api/v1/admin/dev/sms').set('Authorization', `Bearer ${root}`).expect(200);
+    expect(list.body.find((m: { phone: string }) => m.phone === '+79990009010')?.text).toMatch(/\d{6}/);
+    await t.http().get('/api/v1/admin/dev/sms').set('Authorization', `Bearer ${support}`).expect(403);
+  });
+
   it('ошибки не раскрывают внутренности (стек, SQL)', async () => {
     const res = await t.http().get(`/api/v1/client/orders/not-a-uuid`).set('Authorization', `Bearer ${(await t.login('+79990009003', 'client')).token}`);
     expect(res.status).toBe(400);

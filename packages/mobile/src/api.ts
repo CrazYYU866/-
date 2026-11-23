@@ -7,6 +7,9 @@ import { storage } from './storage';
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? (Platform.OS === 'web' ? '' : 'http://localhost:3000')).replace(/\/$/, '');
 const BASE = `${API_URL}/api/v1`;
 
+/** Сборка для телефона без адреса сервера (EXPO_PUBLIC_API_URL) не сможет работать — показываем это явно. */
+export const API_NOT_CONFIGURED = Platform.OS !== 'web' && !__DEV__ && /localhost|127\.0\.0\.1/.test(API_URL);
+
 export type AppKind = 'client' | 'partner';
 let APP: AppKind = 'client';
 let orgId: string | null = null;

@@ -43,7 +43,13 @@ let webWatch: Location.LocationSubscription | null = null;
 
 export type StartResult = { ok: true; background: boolean } | { ok: false; reason: 'permission_denied' | 'gps_off' };
 
-export async function startTracking(orderId: string, orgId = getOrgId() ?? ''): Promise<StartResult> {
+/** Нужно ли показать пояснение перед запросом фоновой геолокации (требование Google Play и App Store). */
+export async function needsBackgroundDisclosure(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  return (await Location.getBackgroundPermissionsAsync()).status !== 'granted';
+}
+
+export async function startTracking(orderId: string, orgId = getOrgId() ?? '', askBackground = true): Promise<StartResult> {
   const fg = await Location.requestForegroundPermissionsAsync();
   if (fg.status !== 'granted') return { ok: false, reason: 'permission_denied' };
   if (Platform.OS !== 'web' && !(await Location.hasServicesEnabledAsync())) return { ok: false, reason: 'gps_off' };
@@ -56,7 +62,7 @@ export async function startTracking(orderId: string, orgId = getOrgId() ?? ''): 
     });
     return { ok: true, background: false };
   }
-  const bg = await Location.requestBackgroundPermissionsAsync();
+  const bg = askBackground ? await Location.requestBackgroundPermissionsAsync() : await Location.getBackgroundPermissionsAsync();
   if (await Location.hasStartedLocationUpdatesAsync(TASK)) await Location.stopLocationUpdatesAsync(TASK);
   await Location.startLocationUpdatesAsync(TASK, {
     accuracy: Location.Accuracy.High,
