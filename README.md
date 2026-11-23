@@ -77,6 +77,7 @@ npx expo export --platform web                                # веб-сбор�
 - [Развёртывание сервера](docs/DEPLOYMENT.md)
 - [Подключение реальных провайдеров](docs/INTEGRATIONS.md)
 - [Оставшиеся блокеры](docs/BLOCKERS.md)
+- [Полный список для запуска: сервисы, ключи, порядок](docs/LAUNCH_CHECKLIST.md)
 - [Первые шаги: сервер, стенд, Expo](docs/FIRST_STEPS.md)
 - [То же — только с iPhone](docs/IPHONE_SETUP.md)
 - [Бесплатный просмотр: GitHub Codespaces + Expo Go](docs/FREE_DEMO.md)

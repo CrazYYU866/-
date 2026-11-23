@@ -171,7 +171,7 @@ function Actions({ order: o, onDone }: { order: OrderView; onDone: () => void })
       <>
         <Button title={`Оплатить ${rub(amount)}`} loading={pay.isPending} onPress={() => pay.mutate()} />
         {o.price.payerKind === 'legal' && !extraDue ? (
-          <Button kind="secondary" title={invoice.isSuccess ? 'Счёт отправлен на email организации' : 'Получить счёт для оплаты'} disabled={invoice.isSuccess} loading={invoice.isPending} onPress={() => invoice.mutate(part)} />
+          <Button kind="secondary" title={invoice.isSuccess ? 'Счёт выставлен' : 'Получить счёт для оплаты'} disabled={invoice.isSuccess} loading={invoice.isPending} onPress={() => invoice.mutate(part)} />
         ) : null}
         {o.status === 'awaiting_prepayment' ? <T v="small" muted>Если не оплатить вовремя, заказ отменится автоматически.</T> : null}
         {o.status === 'awaiting_final_payment' ? <T v="small" muted>Оплатите в течение 24 часов после завершения — иначе образуется задолженность и новые заказы будут недоступны.</T> : null}

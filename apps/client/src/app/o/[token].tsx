@@ -79,7 +79,7 @@ export default function PublicOrder() {
       {canPay ? (
         <Card accent>
           <Button title={`Оплатить ${rub(due)}`} loading={pay.isPending} onPress={() => pay.mutate()} />
-          {legal ? <Button kind="secondary" title={invoice.isSuccess ? 'Счёт отправлен на email организации' : 'Получить счёт'} disabled={invoice.isSuccess} loading={invoice.isPending} onPress={() => invoice.mutate(o.status === 'awaiting_prepayment' ? 'first' : 'final')} /> : null}
+          {legal ? <Button kind="secondary" title={invoice.isSuccess ? 'Счёт выставлен' : 'Получить счёт'} disabled={invoice.isSuccess} loading={invoice.isPending} onPress={() => invoice.mutate(o.status === 'awaiting_prepayment' ? 'first' : 'final')} /> : null}
         </Card>
       ) : null}
 
