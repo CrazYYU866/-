@@ -8,10 +8,12 @@ USER_NAME="${STAND_USER:-kovsh}"
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 log "1/5 Файл подкачки (нужен сборке)"
-if ! swapon --show | grep -q /swapfile; then
-  [ -f /swapfile ] || fallocate -l 4G /swapfile
-  chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
-  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+if ! swapon --show 2>/dev/null | grep -q /swapfile; then
+  if { [ -f /swapfile ] || fallocate -l 4G /swapfile; } && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile; then
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  else
+    log "    подкачку включить не удалось — продолжаем (при нехватке памяти сборка может прерваться)"
+  fi
 fi
 
 log "2/5 Docker"
