@@ -71,6 +71,14 @@ npx expo export --platform web                                # веб-сбор�
 Фоновая передача GPS машиниста (с «Выехал» до «Прибыл») работает только в сборке приложения на телефоне
 (development build или магазинная сборка): Expo Go и веб-версия передают координаты, пока приложение открыто.
 
+## Документы этапа 13
+
+- [Отчёт о тестировании и безопасности](docs/testing/STAGE13_REPORT.md)
+- [Развёртывание сервера](docs/DEPLOYMENT.md)
+- [Подключение реальных провайдеров](docs/INTEGRATIONS.md)
+- [Оставшиеся блокеры](docs/BLOCKERS.md)
+- Резервное копирование и проверка восстановления: `infra/backup/`
+
 ## Тесты
 
 Тесты работают с настоящей БД (`kovsh_test`) и Redis (база 15):
@@ -82,6 +90,8 @@ pnpm test
 ```
 
 Адреса переопределяются через `TEST_DATABASE_URL` и `TEST_REDIS_URL`.
+
+Нагрузочный тест подбора: `pnpm --filter @kovsh/api test:load` (параметры `LOAD_COMPANIES`, `LOAD_ORDERS`, `LOAD_WORKERS`).
 
 ## Принципы
 
