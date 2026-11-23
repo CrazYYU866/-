@@ -4,7 +4,7 @@
   "private": true,
   "description": "Дизайн-система «Ковш на Час»: токены цвета, типографики и отступов для админки и мобильных приложений",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -14,5 +14,6 @@
   "devDependencies": {
     "typescript": "~5.9.3"
   },
-  "react-native": "src/index.ts"
+  "react-native": "src/index.ts",
+  "browser": "src/index.ts"
 }

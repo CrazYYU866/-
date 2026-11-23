@@ -1,0 +1,36 @@
+# HTTPS-сертификаты Let's Encrypt выпускаются автоматически для трёх адресов стенда (email необязателен).
+
+# API для мобильных приложений (EXPO_PUBLIC_API_URL=https://api.<домен>), WebSocket — там же.
+api.{$STAND_DOMAIN} {
+	encode gzip
+	reverse_proxy api:3000
+}
+
+# Админ-панель.
+admin.{$STAND_DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Веб-версия приложения заказчика: ссылки из SMS на заявки диспетчера (/o/<токен>), тестовая оплата.
+app.{$STAND_DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+	handle /socket.io/* {
+		reverse_proxy api:3000
+	}
+	handle {
+		root * /srv/app
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -20,6 +20,8 @@ FROM ${NODE_IMAGE}
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build --chown=node:node /out ./
+# Папка локального хранилища (тестовый стенд): том подключается с правами пользователя node.
+RUN mkdir -p /data/storage && chown node:node /data/storage
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
