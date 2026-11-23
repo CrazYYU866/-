@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, getOrgId } from '@kovsh/mobile';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
@@ -11,6 +12,8 @@ import { enqueuePoints, flushQueue, type GpsPoint } from './queue';
  * (Android — постоянное уведомление, iOS — индикатор геолокации). Без связи точки копятся и уходят пачкой.
  */
 const TASK = 'kovsh-operator-gps';
+/** Expo Go: фоновая геолокация и push в нём недоступны — работаем в режиме «пока приложение открыто». */
+export const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 const ACTIVE = 'kovsh.partner.gps.active';
 interface Active { orderId: string; orgId: string }
 
@@ -27,7 +30,7 @@ async function active(): Promise<Active | null> {
   try { return JSON.parse((await AsyncStorage.getItem(ACTIVE)) ?? 'null'); } catch { return null; }
 }
 
-if (Platform.OS !== 'web' && !TaskManager.isTaskDefined(TASK)) {
+if (Platform.OS !== 'web' && !isExpoGo && !TaskManager.isTaskDefined(TASK)) {
   TaskManager.defineTask<{ locations: Location.LocationObject[] }>(TASK, async ({ data, error }) => {
     if (error || !data?.locations?.length) return;
     const a = await active();
@@ -45,7 +48,7 @@ export type StartResult = { ok: true; background: boolean } | { ok: false; reaso
 
 /** Нужно ли показать пояснение перед запросом фоновой геолокации (требование Google Play и App Store). */
 export async function needsBackgroundDisclosure(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  if (Platform.OS === 'web' || isExpoGo) return false;
   return (await Location.getBackgroundPermissionsAsync()).status !== 'granted';
 }
 
@@ -55,29 +58,37 @@ export async function startTracking(orderId: string, orgId = getOrgId() ?? '', a
   if (Platform.OS !== 'web' && !(await Location.hasServicesEnabledAsync())) return { ok: false, reason: 'gps_off' };
   await AsyncStorage.setItem(ACTIVE, JSON.stringify({ orderId, orgId } satisfies Active));
 
-  if (Platform.OS === 'web') {
+  const foreground = async (): Promise<StartResult> => {
+    // Передача, пока приложение открыто: браузер, Expo Go (там нет фоновой геолокации) или фон запрещён/недоступен.
     webWatch?.remove();
     webWatch = await Location.watchPositionAsync({ accuracy: Location.Accuracy.High, timeInterval: 15_000, distanceInterval: 30 }, (l) => {
       enqueuePoints(orderId, orgId, [toPoint(l)]).then(() => flushQueue()).catch(() => undefined);
     });
     return { ok: true, background: false };
-  }
+  };
+  if (Platform.OS === 'web' || isExpoGo) return foreground();
+
   const bg = askBackground ? await Location.requestBackgroundPermissionsAsync() : await Location.getBackgroundPermissionsAsync();
-  if (await Location.hasStartedLocationUpdatesAsync(TASK)) await Location.stopLocationUpdatesAsync(TASK);
-  await Location.startLocationUpdatesAsync(TASK, {
-    accuracy: Location.Accuracy.High,
-    timeInterval: 15_000,
-    distanceInterval: 30,
-    deferredUpdatesInterval: 30_000,
-    pausesUpdatesAutomatically: false,
-    activityType: Location.LocationActivityType.AutomotiveNavigation,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: 'Вы в пути к объекту',
-      notificationBody: 'Заказчик видит, где вы. Передача остановится после «Прибыл».',
-      notificationColor: '#F5B000',
-    },
-  });
+  try {
+    if (await Location.hasStartedLocationUpdatesAsync(TASK)) await Location.stopLocationUpdatesAsync(TASK);
+    await Location.startLocationUpdatesAsync(TASK, {
+      accuracy: Location.Accuracy.High,
+      timeInterval: 15_000,
+      distanceInterval: 30,
+      deferredUpdatesInterval: 30_000,
+      pausesUpdatesAutomatically: false,
+      activityType: Location.LocationActivityType.AutomotiveNavigation,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: 'Вы в пути к объекту',
+        notificationBody: 'Заказчик видит, где вы. Передача остановится после «Прибыл».',
+        notificationColor: '#F5B000',
+      },
+    });
+  } catch {
+    // Фоновая задача недоступна (нет разрешения «Всегда» на iOS и т. п.) — статус всё равно отмечается, координаты — пока открыто.
+    return foreground();
+  }
   return { ok: true, background: bg.status === 'granted' };
 }
 
@@ -85,7 +96,7 @@ export async function stopTracking(): Promise<void> {
   await AsyncStorage.removeItem(ACTIVE);
   webWatch?.remove();
   webWatch = null;
-  if (Platform.OS !== 'web' && (await Location.hasStartedLocationUpdatesAsync(TASK).catch(() => false))) {
+  if (Platform.OS !== 'web' && !isExpoGo && (await Location.hasStartedLocationUpdatesAsync(TASK).catch(() => false))) {
     await Location.stopLocationUpdatesAsync(TASK);
   }
   await flushQueue().catch(() => undefined);

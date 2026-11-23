@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
@@ -20,7 +20,8 @@ Notifications.setNotificationHandler({
 const SENT_KEY = 'kovsh.push.registered';
 
 async function obtainToken(): Promise<string | null> {
-  if (Platform.OS === 'web' || !Device.isDevice) return null; // на эмуляторе и в браузере push недоступны
+  // На эмуляторе, в браузере и в Expo Go push недоступны (Expo Go не получает push начиная с SDK 53).
+  if (Platform.OS === 'web' || !Device.isDevice || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return null;
   if (Platform.OS === 'android') {
     // Отдельный канал с высоким приоритетом: предложение заказа живёт 40 секунд.
     await Notifications.setNotificationChannelAsync('orders', {

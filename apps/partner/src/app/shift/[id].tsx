@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { needsBackgroundDisclosure, pointForStatus, startTracking, stopTracking } from '../../lib/gps';
+import { isExpoGo, needsBackgroundDisclosure, pointForStatus, startTracking, stopTracking } from '../../lib/gps';
 import { useOrg } from '../../lib/org';
 import { enqueueStatus, flushQueue, pendingStatusCount } from '../../lib/queue';
 import { SHIFT_LABEL, type PartnerOrder } from '../../lib/types';
@@ -49,7 +49,7 @@ export default function ShiftScreen() {
       if (step === 'en_route') {
         const r = await startTracking(id, current!.orgId, background);
         if (!r.ok) setGpsNote(r.reason === 'permission_denied' ? 'Нет доступа к геолокации — заказчик не увидит, где вы. Разрешите доступ в настройках телефона.' : 'Геолокация выключена. Включите её, чтобы заказчик видел, где вы.');
-        else if (!r.background && Platform.OS !== 'web') setGpsNote('Разрешите доступ к геолокации «Всегда», иначе при свёрнутом приложении координаты не передаются.');
+        else if (!r.background && Platform.OS !== 'web') setGpsNote(isExpoGo ? 'Режим Expo Go: координаты передаются, только пока приложение открыто. Фоновая передача — в полной сборке приложения.' : 'Разрешите доступ к геолокации «Всегда», иначе при свёрнутом приложении координаты не передаются.');
       }
       if (step === 'arrived') await stopTracking();
       const where = await pointForStatus();
