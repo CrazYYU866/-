@@ -247,6 +247,33 @@ describe('Этап 7: оплата, отмены, журнал, выплаты',
     expect(await balance(`agent:${agent.id}`)).toBe(-Math.round(total * 0.07));
   });
 
+  it('С-35 с независимым диспетчером: «Работа принята» — распределение 88% исполнителю, 7% диспетчеру, 5% платформе', async () => {
+    const support = await t.adminLogin('sup-agent-dispute@fin.test', 'support');
+    const co = await company(10);
+    const agentOwner = await t.login(phone());
+    const agent = (await t.http().post('/api/v1/partner/organizations').set(bearer(agentOwner.token)).send({
+      kind: 'agent', legalForm: 'llc', name: 'ООО Диспетчер Спор', representativeName: 'Сидоров С.С.', inn: innLegal(innSeq), ogrn: ogrnLegal(innSeq++),
+      legalAddress: 'Москва, 3', email: 'd@d.ru', contactPhone: '+79160000099',
+    }).expect(201)).body;
+    const cust = await customerWith('individual');
+    await pool.query('UPDATE equipment_units SET is_online = (org_id = $1)', [co.orgId]);
+    const { orderId, total } = await placeAndAccept(cust, co);
+    await pool.query("UPDATE orders SET agent_org_id = $1, source = 'agent' WHERE id = $2", [agent.id, orderId]);
+    await pay(cust.token, orderId);
+    await runWork(co, orderId);
+    await t.http().post(`/api/v1/client/orders/${orderId}/dispute`).set(bearer(cust.token)).send({ reason: 'Опоздание' }).expect(204);
+    await t.http().post(`/api/v1/admin/orders/${orderId}/dispute/resolve`).set(bearer(support)).send({ outcome: 'accept_work', reason: 'Работа выполнена' }).expect(204);
+    const o = await order(orderId);
+    const subsidy = Number(o.partner_delivery_kopecks) - Number(o.customer_delivery_kopecks);
+    expect(Number(o.commission_kopecks)).toBe(Math.round(total * 0.12));
+    expect(Number(o.agent_kopecks)).toBe(Math.round(total * 0.07));
+    expect(Number(o.platform_kopecks)).toBe(Math.round(total * 0.12) - Math.round(total * 0.07));
+    // Исполнителю — 88% стоимости заказа (+ компенсация разницы доставки, Ф-2), а не 100%.
+    expect(Number(o.partner_amount_kopecks)).toBe(total - Math.round(total * 0.12) + subsidy);
+    expect(Number(o.partner_amount_kopecks)).toBeLessThan(total + subsidy);
+    expect(await balance(`agent:${agent.id}`)).toBe(-Math.round(total * 0.07));
+  });
+
   it('юрлицо: 50% после принятия, остальные 50% после завершения; не оплатил за 24 часа — долг и запрет новых заказов (Н-9, К-9)', async () => {
     const co = await company(10);
     const cust = await customerWith('legal');

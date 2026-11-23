@@ -77,6 +77,7 @@ npx expo export --platform web                                # веб-сбор�
 - [Развёртывание сервера](docs/DEPLOYMENT.md)
 - [Подключение реальных провайдеров](docs/INTEGRATIONS.md)
 - [Оставшиеся блокеры](docs/BLOCKERS.md)
+- [Первые шаги: сервер, стенд, Expo](docs/FIRST_STEPS.md)
 - [Тестирование на iPhone и Android](docs/DEVICE_TESTING.md)
 - [Техническое задание с утверждёнными дополнениями](docs/TZ.md)
 - Резервное копирование и проверка восстановления: `infra/backup/`
