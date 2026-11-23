@@ -95,7 +95,7 @@ exit
 На сервере:
 
 ```
-git clone -b claude/magical-bell-a63eao https://github.com/crazyyu866/-.git kovsh
+git clone -b claude/magical-bell-a63eao https://github.com/CrazYYU866/-.git kovsh
 ```
 
 Username — ваш логин GitHub, Password — **токен** (при вставке символы не отображаются — это нормально).
