@@ -22,7 +22,9 @@ export function LoginPage() {
         ) : (
           <>
             <label className="field">Ключ для ручного ввода<div className="mono">{enroll.secret}</div></label>
-            <label className="field">Ссылка для приложения<div className="mono">{enroll.otpauthUrl}</div></label>
+            {/* На телефоне ссылка сразу открывает приложение-аутентификатор (или «Пароли» на iOS 17+) — сканировать ничего не нужно. */}
+            <a className="btn" href={enroll.otpauthUrl}>Добавить в приложение-аутентификатор</a>
+            <label className="field">Ссылка для приложения<div className="mono" style={{ wordBreak: 'break-all' }}>{enroll.otpauthUrl}</div></label>
             <label className="field">Код из приложения<input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" maxLength={6} /></label>
             <button className="primary" onClick={async () => {
               try {

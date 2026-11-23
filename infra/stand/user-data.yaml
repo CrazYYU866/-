@@ -1,0 +1,12 @@
+#cloud-config
+# Вставляется в поле метаданных user-data при создании ВМ в Yandex Cloud (docs/IPHONE_SETUP.md, шаг 4).
+# Замените ДВА значения: строку ключа после «- » и ТОКЕН_GITHUB. Остальное не меняйте.
+users:
+  - name: kovsh
+    groups: sudo
+    shell: /bin/bash
+    sudo: 'ALL=(ALL) NOPASSWD:ALL'
+    ssh_authorized_keys:
+      - ssh-ed25519 ВСТАВЬТЕ_ПУБЛИЧНЫЙ_КЛЮЧ_ИЗ_TERMIUS
+runcmd:
+  - [bash, -c, "git clone -b claude/magical-bell-a63eao https://x-access-token:ТОКЕН_GITHUB@github.com/CrazYYU866/-.git /home/kovsh/kovsh > /var/log/kovsh-stand.log 2>&1 && git -C /home/kovsh/kovsh remote set-url origin https://github.com/CrazYYU866/-.git && chown -R kovsh:kovsh /home/kovsh/kovsh && bash /home/kovsh/kovsh/infra/stand/bootstrap.sh >> /var/log/kovsh-stand.log 2>&1"]
