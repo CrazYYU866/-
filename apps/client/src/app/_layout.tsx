@@ -21,6 +21,8 @@ function RootStack() {
         headerBackButtonDisplayMode: 'minimal',
       }}
     >
+      {/* Заявка по SMS-ссылке — доступна и без входа (Н-30). */}
+      <Stack.Screen name="o/[token]" options={{ title: 'Заявка' }} />
       <Stack.Protected guard={!session}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
       </Stack.Protected>

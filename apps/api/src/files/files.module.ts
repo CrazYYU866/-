@@ -22,6 +22,7 @@ import { STORAGE } from './storage/storage.provider';
               region: env.S3_REGION,
               accessKeyId: env.S3_ACCESS_KEY_ID ?? '',
               secretAccessKey: env.S3_SECRET_ACCESS_KEY ?? '',
+              serverSideEncryption: env.S3_SERVER_SIDE_ENCRYPTION,
             })
           : new LocalStorage(env.STORAGE_LOCAL_DIR),
     },

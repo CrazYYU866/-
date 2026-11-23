@@ -53,7 +53,7 @@ export class AgentController {
   @Post('orders')
   async create(@CurrentOrg() org: OrgContext, @CurrentUser() u: AuthUser, @Body(new ZodValidationPipe(AgentOrderSchema)) dto: { quoteId: string; siteComment?: string }) {
     this.assertAgent(org);
-    return this.orders.createForAgent(org.orgId, u.userId, dto.quoteId, dto.siteComment, this.env.PUBLIC_BASE_URL);
+    return this.orders.createForAgent(org.orgId, u.userId, dto.quoteId, dto.siteComment, (this.env.CUSTOMER_WEB_URL ?? this.env.PUBLIC_BASE_URL).replace(/\/$/, ''));
   }
 
   @Get('orders')

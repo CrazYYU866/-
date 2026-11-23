@@ -517,4 +517,26 @@ describe('Этап 6: заказы и распределение', () => {
     await fire('search_tick', second);
     expect((await pendingOffer(second))?.org_id).toBe(c.orgId);
   });
+  it('С-37 по единице техники: вторая свободная машина той же компании получает предложение на то же время; без свободных машин компания пропускается', async () => {
+    const a = await company(10, { operators: 2 });
+    // Вторая машина компании A — чуть дальше первой.
+    const base = north(12);
+    await pool.query(
+      `INSERT INTO equipment_units (org_id, category_id, brand, model, year, attributes, base_point, base_address, work_radius_km, allow_beyond_radius,
+         is_online, verification_status, created_by)
+       VALUES ($1, $2, 'CAT', '301', 2022, '{"operating_weight": 3}', ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, 'База 2', 150, true, true, 'approved', $5)`,
+      [a.orgId, catId, base.lng, base.lat, a.ownerUserId]);
+    const b = await company(25);
+    const first = await order();
+    const offer1 = (await pool.query("SELECT unit_id, org_id FROM order_offers WHERE order_id = $1 AND status = 'pending'", [first])).rows[0];
+    expect(offer1.org_id).toBe(a.orgId);
+    // Второй заказ на то же время: компания A участвует второй машиной.
+    const second = await order();
+    const offer2 = (await pool.query("SELECT unit_id, org_id FROM order_offers WHERE order_id = $1 AND status = 'pending'", [second])).rows[0];
+    expect(offer2.org_id).toBe(a.orgId);
+    expect(offer2.unit_id).not.toBe(offer1.unit_id);
+    // Третий заказ: у A свободных машин нет — предложение уходит следующему исполнителю (B).
+    const third = await order();
+    expect((await pendingOffer(third))?.org_id).toBe(b.orgId);
+  });
 });

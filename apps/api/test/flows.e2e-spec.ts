@@ -216,6 +216,8 @@ describe('Н-27…Н-30: организации заказчиков, автов
     expect(token).toBeTruthy();
     await t.http().get('/api/v1/public/orders/wrong-token').expect(404);
     const page = await t.http().get(`/api/v1/public/orders/${token}`).expect(200);
+    expect((await t.http().get(`/api/v1/public/orders/${token}/extensions`).expect(200)).body).toEqual([]);
+    await t.http().get('/api/v1/public/orders/wrong-token-wrong-token-wrong-token/extensions').expect(404);
     expect(page.body.order.status).toBe('awaiting_customer_confirmation');
     expect(page.body.payerOptions[0]).toEqual({ kind: 'individual' });
 

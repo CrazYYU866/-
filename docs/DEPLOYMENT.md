@@ -11,7 +11,7 @@
 | Обработчик заданий | Тот же образ (`JOBS_AUTORUN=true`) | Задания берутся с `FOR UPDATE SKIP LOCKED` — несколько экземпляров безопасны ✅ (нагрузочный тест: 4 обработчика) |
 | PostgreSQL 16 + PostGIS | Managed Service for PostgreSQL | Расширения: `postgis`, `btree_gist`, `pgcrypto` |
 | Redis 7 | Managed Service for Redis (Valkey) | Сессии, лимиты, коды SMS, WebSocket между экземплярами |
-| Файлы (документы, фото) | Object Storage, приватный бакет | ⚠️ S3-драйвер с Yandex Object Storage не проверялся (нужен ключ доступа) |
+| Файлы (документы, фото) | Object Storage, приватный бакет с шифрованием KMS-ключом по умолчанию | ✅ S3-драйвер проверен на эмуляторе; ⚠️ с Yandex Object Storage — после ключа доступа |
 | Админка | Статика `apps/admin/dist` → Object Storage (веб-сайт) + CDN, или тот же балансировщик | Обращается к API по `/api` на том же домене |
 | HTTPS | Application Load Balancer + Certificate Manager | Сертификаты Let's Encrypt или свои |
 | Секреты | Lockbox | Передаются в переменные окружения контейнера |
@@ -36,7 +36,7 @@ WebSocket (`/socket.io`, пространство `/ws`) идёт через т�
 | `REDIS_URL` | `rediss://…` Managed Redis |
 | `JWT_ACCESS_SECRET`, `ADMIN_JWT_SECRET`, `OTP_HASH_SECRET` | случайные строки ≥ 32 символов, разные (Lockbox) |
 | `DATA_ENCRYPTION_KEY` | 32 случайных байта в base64 (`openssl rand -base64 32`) — шифрует банковские реквизиты. **Потеря ключа = потеря реквизитов**, хранить копию отдельно |
-| `STORAGE_DRIVER=s3`, `S3_ENDPOINT=https://storage.yandexcloud.net`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | сервисный аккаунт с ролью `storage.editor` только на бакет |
+| `STORAGE_DRIVER=s3`, `S3_ENDPOINT=https://storage.yandexcloud.net`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | сервисный аккаунт с ролью `storage.editor` только на бакет; `S3_SERVER_SIDE_ENCRYPTION` не задавать — шифрует бакет |
 | `SMS_PROVIDER`, `ROUTING_PROVIDER`, `GEOCODER_PROVIDER`, `PAYMENT_PROVIDER`, `PUSH_PROVIDER`, `TELEPHONY_PROVIDER` | реальные провайдеры (см. `docs/INTEGRATIONS.md`) |
 | `PUBLIC_BASE_URL` | `https://api.<домен>` — для ссылок оплаты и SMS-ссылок заявок |
 | `TRUST_PROXY` | `true` (за балансировщиком; нужно для лимитов по IP) |

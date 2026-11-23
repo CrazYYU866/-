@@ -4,31 +4,31 @@
   "orders": 200,
   "workers": 4,
   "routing": "dev (прямая × 1,3)",
-  "seedMs": 1125,
-  "createPhaseMs": 2791,
+  "seedMs": 1137,
+  "createPhaseMs": 2846,
   "ordersCreated": 200,
   "quoteLatencyMs": {
-    "p50": 167,
-    "p95": 313,
-    "max": 326
+    "p50": 173,
+    "p95": 357,
+    "max": 377
   },
   "orderLatencyMs": {
-    "p50": 93,
-    "p95": 147,
-    "max": 179
+    "p50": 90,
+    "p95": 143,
+    "max": 202
   },
-  "matchPhaseMs": 8545,
+  "matchPhaseMs": 7168,
   "timeToFirstOfferMs": {
-    "p50": 5155,
-    "p95": 8015,
-    "max": 8430
+    "p50": 4482,
+    "p95": 6675,
+    "max": 7017
   },
   "ordersWithOffer": 200,
-  "acceptPhaseMs": 4595,
+  "acceptPhaseMs": 5081,
   "acceptLatencyMs": {
-    "p50": 210,
-    "p95": 270,
-    "max": 392
+    "p50": 237,
+    "p95": 296,
+    "max": 377
   },
   "acceptRace": {
     "offers": 200,

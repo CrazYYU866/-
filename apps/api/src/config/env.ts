@@ -31,6 +31,8 @@ const EnvSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Заголовок шифрования при загрузке. Не задан — действует шифрование бакета по умолчанию (рекомендуется: KMS-ключ бакета). */
+  S3_SERVER_SIDE_ENCRYPTION: z.enum(['AES256', 'aws:kms']).optional(),
   /** Маршрутизация: dev — приблизительный расчёт для разработки; yandex — после получения ключа (П-19). */
   ROUTING_PROVIDER: z.enum(['dev']).default('dev'),
   /** Подсказки адресов. `dev` — встроенный тестовый список; Яндекс Геосаджест — после получения ключа. */
@@ -45,6 +47,8 @@ const EnvSchema = z.object({
   TELEPHONY_PROVIDER: z.enum(['dev']).default('dev'),
   /** Внешний адрес API (ссылки оплаты, SMS-ссылки). */
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
+  /** Адрес веб-версии приложения заказчика — для SMS-ссылок на заявки диспетчера (`/o/<токен>`). По умолчанию — PUBLIC_BASE_URL. */
+  CUSTOMER_WEB_URL: z.string().url().optional(),
   /** Доверять заголовку X-Forwarded-For (за балансировщиком). */
   TRUST_PROXY: envBool(false),
   /** Лимит запросов с одного IP в минуту; 0 — без ограничения (технический параметр, ТЗ §19). */

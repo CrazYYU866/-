@@ -32,6 +32,13 @@ export class PublicOrderController {
     return { order, payerOptions: [{ kind: 'individual' }, ...orgs.rows.map((o) => ({ kind: 'legal', legalProfileId: o['id'], name: o['name'], inn: o['inn'] }))] };
   }
 
+  /** Запросы машиниста на продление — заказчик по ссылке подтверждает или отклоняет (Н-28, Н-30). */
+  @Get('extensions')
+  async extensions(@Param('token') token: string) {
+    const { orderId } = await this.orders.byLinkToken(token);
+    return this.orders.extensions(orderId);
+  }
+
   @Post('confirm')
   @HttpCode(HttpStatus.NO_CONTENT)
   async confirm(@Param('token') token: string, @Body(new ZodValidationPipe(ConfirmByLinkSchema)) dto: { payer: Payer }): Promise<void> {
