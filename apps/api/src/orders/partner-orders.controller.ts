@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post
 import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { AssignOperatorSchema, ERROR_CODES, RequestExtensionSchema, ReasonSchema, ReplaceUnitSchema, ReportIncidentSchema, StatusEventsSchema, type AssignOperator, type ReportIncident, type StatusEvents } from '@kovsh/contracts';
 import { sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { CurrentUser, type AuthUser } from '../auth/current-user';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AppException } from '../common/app-exception';
@@ -12,6 +13,8 @@ import { MatchingService } from './matching.service';
 import { OperatorService } from './operator.service';
 import { OrderCore } from './order-core';
 import { OrdersService } from './orders.service';
+
+const TransferManagementSchema = z.object({ memberId: z.string().uuid() });
 
 /** Предложения и заказы компании (Р-1, Р-4, П-8, Н-22). */
 @ApiTags('partner: заказы')
@@ -84,6 +87,13 @@ export class PartnerOrdersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async assign(@CurrentOrg() org: OrgContext, @CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(AssignOperatorSchema)) dto: AssignOperator): Promise<void> {
     await this.assignment.assignOperator(org, u.userId, id, dto.memberId, dto.shiftId);
+  }
+
+  @Post('orders/:id/manager')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @OrgRoles('owner', 'manager')
+  async transfer(@CurrentOrg() org: OrgContext, @CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodValidationPipe(TransferManagementSchema)) dto: { memberId: string }): Promise<void> {
+    await this.assignment.transferManagement(org, u.userId, id, dto.memberId);
   }
 
   @Get('orders/:id/replacement-units')

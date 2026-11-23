@@ -1,6 +1,6 @@
 import { api, AuthImage, Button, Card, ErrorView, Loading, Notice, Pill, post, Row, Section, space, Stepper, T, useTheme } from '@kovsh/mobile';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { DocList, type DocReq } from '../../components/DocList';
@@ -77,6 +77,13 @@ export default function UnitScreen() {
           <Stepper label="Радиус" value={radius ?? u.workRadiusKm} min={5} max={300} step={5} format={(v) => `${v} км`} onChange={setRadius} />
           {radius !== null ? <Button small title="Сохранить радиус" loading={saveRadius.isPending} onPress={() => saveRadius.mutate()} /> : null}
           <T v="small" muted>{u.allowBeyondRadius ? 'Готов ехать дальше радиуса при расширении поиска.' : 'Заказы — только в пределах радиуса.'}</T>
+        </Card>
+      </Section>
+
+      <Section title="Когда доступна">
+        <Card onPress={() => router.push({ pathname: '/unit/schedule', params: { id } })}>
+          <T>{u.schedule.length ? 'По расписанию' : 'В любое время'}</T>
+          <T v="small" style={{ fontWeight: '600' }}>Изменить расписание →</T>
         </Card>
       </Section>
 

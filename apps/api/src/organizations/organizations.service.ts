@@ -50,6 +50,8 @@ export interface MembershipView {
   status: OrganizationStatus;
   role: OrgMemberRole;
   canOperate: boolean;
+  /** Своя запись сотрудника — нужна, например, чтобы машинист загрузил свои документы (С-5). */
+  memberId: string;
 }
 
 /** Ограничения формы: ИП — ИНН 12 / ОГРНИП 15, юрлицо — ИНН 10 / ОГРН 13; контрольные числа ФНС. */
@@ -181,6 +183,7 @@ export class OrganizationsService {
         status: organizations.status,
         role: organizationMembers.role,
         canOperate: organizationMembers.canOperate,
+        memberId: organizationMembers.id,
       })
       .from(organizationMembers)
       .innerJoin(organizations, eq(organizations.id, organizationMembers.orgId))

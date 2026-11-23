@@ -39,12 +39,14 @@ function RootStack() {
         <Stack.Screen name="shift/[id]" options={{ title: 'Смена' }} />
         <Stack.Screen name="unit/[id]" options={{ title: 'Техника' }} />
         <Stack.Screen name="unit/new" options={{ title: 'Новая техника' }} />
+        <Stack.Screen name="unit/schedule" options={{ title: 'Расписание' }} />
         <Stack.Screen name="chat/[id]" options={{ title: 'Переписка' }} />
         <Stack.Screen name="agent/new" options={{ title: 'Заявка за заказчика' }} />
         <Stack.Screen name="company/documents" options={{ title: 'Документы компании' }} />
         <Stack.Screen name="company/members" options={{ title: 'Сотрудники' }} />
         <Stack.Screen name="company/bank" options={{ title: 'Реквизиты для выплат' }} />
         <Stack.Screen name="company/finance" options={{ title: 'Финансы' }} />
+        <Stack.Screen name="company/my-documents" options={{ title: 'Мои документы' }} />
       </Stack.Protected>
     </Stack>
   );

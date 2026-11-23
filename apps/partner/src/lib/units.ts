@@ -3,6 +3,7 @@ export interface Unit {
   attributes: Record<string, unknown>; base: { lat: number; lng: number; address: string }; workRadiusKm: number; allowBeyondRadius: boolean;
   isOnline: boolean; verificationStatus: 'draft' | 'pending' | 'approved' | 'rejected'; rejectionReason: string | null; archived: boolean;
   photos: { id: string; fileId: string; sort: number }[];
+  schedule: { weekday: number; start: string; end: string }[];
 }
 export const UNIT_STATUS = {
   draft: { label: 'Черновик', tone: 'neutral' },

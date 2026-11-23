@@ -33,7 +33,7 @@ export default function Company() {
     await auth.set(null);
   }
 
-  const link = (title: string, hint: string, href: '/company/documents' | '/company/members' | '/company/bank' | '/company/finance') => (
+  const link = (title: string, hint: string, href: '/company/documents' | '/company/members' | '/company/bank' | '/company/finance' | '/company/my-documents') => (
     <Pressable key={href} onPress={() => router.push(href)} accessibilityRole="button"
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, opacity: pressed ? 0.7 : 1 })}>
       <View style={{ flex: 1 }}><T style={{ fontWeight: '600' }}>{title}</T><T v="small" muted>{hint}</T></View>
@@ -69,7 +69,7 @@ export default function Company() {
         {c.manage || c.dispatch ? link('Сотрудники', 'Диспетчеры, машинисты, приглашения', '/company/members') : null}
         {c.ownerOnly ? link('Реквизиты для выплат', o?.bankAccount ? `${o.bankAccount.bankName}, счёт •••${o.bankAccount.accountLast4}` : 'Не указаны — выплаты не производятся', '/company/bank') : null}
         {c.finance ? link('Финансы', 'Начисления, баланс, выплаты', '/company/finance') : null}
-        {!c.manage && !c.dispatch ? <T muted>Документы машиниста загружает руководитель компании.</T> : null}
+        {c.operate ? link('Мои документы машиниста', 'Паспорт, удостоверение тракториста-машиниста', '/company/my-documents') : null}
       </Card>
 
       {org.memberships.length > 1 ? (

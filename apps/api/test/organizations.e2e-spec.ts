@@ -356,6 +356,9 @@ describe('Этап 3: организации, сотрудники, докуме
       await invite(owner.token, org.id, OPERATOR, 'operator').expect(201);
       const op = await acceptAll(OPERATOR);
       const me = (await t.http().get('/api/v1/partner/members').set(inOrg(owner.token, org.id))).body.find((m: { phone: string }) => m.phone === OPERATOR);
+      // Машинист узнаёт свою запись сотрудника из списка компаний — без доступа к списку сотрудников (С-5, С-6).
+      const own = (await t.http().get('/api/v1/partner/memberships').set(bearer(op)).expect(200)).body.find((x: { orgId: string }) => x.orgId === org.id);
+      expect(own.memberId).toBe(me.id);
       const fileId = await t.upload(op);
       await t.http().post(`/api/v1/partner/members/${me.id}/documents`).set(inOrg(op, org.id)).send({ documentTypeCode: 'operator_passport', fileId }).expect(201);
       let row = await pool.query('SELECT operator_verification FROM organization_members WHERE id = $1', [me.id]);

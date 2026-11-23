@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type Role = 'owner' | 'manager' | 'dispatcher' | 'operator';
-export interface Membership { orgId: string; name: string; kind: 'partner' | 'agent'; status: string; role: Role; canOperate: boolean }
+export interface Membership { orgId: string; memberId: string; name: string; kind: 'partner' | 'agent'; status: string; role: Role; canOperate: boolean }
 
 const KEY = 'kovsh.partner.org';
 export const ROLE_LABEL: Record<Role, string> = { owner: 'Главный руководитель', manager: 'Руководитель', dispatcher: 'Диспетчер', operator: 'Машинист' };

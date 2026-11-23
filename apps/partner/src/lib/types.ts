@@ -15,6 +15,7 @@ export interface PartnerOrder {
   history: { status: string; from: string | null; reason: string | null; actor: string; at: string }[];
   partnerPrice?: { amountKopecks: number | null; deliveryKm: number | null; final: boolean };
   customerPaymentStatus?: 'not_paid' | 'partially_paid' | 'paid';
+  manager?: { memberId: string; fullName: string | null } | null;
 }
 
 export const SHIFT_LABEL: Record<string, string> = {

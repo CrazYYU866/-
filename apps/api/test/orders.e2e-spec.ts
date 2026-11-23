@@ -482,4 +482,26 @@ describe('Этап 6: заказы и распределение', () => {
     const other = await t.login(phone(), 'client');
     await t.http().get(`/api/v1/client/orders/${id}`).set(bearer(other.token)).expect(404);
   });
+  it('руководитель передаёт управление заказом диспетчеру; диспетчер и машинист передать не могут (П-8)', async () => {
+    const c = await company(10);
+    const id = await order();
+    const offers = await t.http().get('/api/v1/partner/offers').set(inOrg(c.owner, c.orgId)).expect(200);
+    await t.http().post(`/api/v1/partner/offers/${offers.body[0].offerId}/accept`).set(inOrg(c.owner, c.orgId)).expect(204);
+    const before = await t.http().get(`/api/v1/partner/orders/${id}`).set(inOrg(c.owner, c.orgId)).expect(200);
+    expect(before.body.manager).not.toBeNull();
+
+    const p = phone();
+    await t.http().post('/api/v1/partner/members').set(inOrg(c.owner, c.orgId)).send({ phone: p, role: 'dispatcher', fullName: 'Диспетчер Передачи' }).expect(201);
+    const d = await t.login(p);
+    const inv = (await t.http().get('/api/v1/partner/invitations').set(bearer(d.token))).body;
+    await t.http().post(`/api/v1/partner/invitations/${inv[0].memberId}/accept`).set(bearer(d.token)).expect(204);
+
+    await t.http().post(`/api/v1/partner/orders/${id}/manager`).set(inOrg(d.token, c.orgId)).send({ memberId: inv[0].memberId }).expect(403);
+    await t.http().post(`/api/v1/partner/orders/${id}/manager`).set(inOrg(c.owner, c.orgId)).send({ memberId: c.operators[0]!.memberId }).expect(404);
+    await t.http().post(`/api/v1/partner/orders/${id}/manager`).set(inOrg(c.owner, c.orgId)).send({ memberId: inv[0].memberId }).expect(204);
+    const after = await t.http().get(`/api/v1/partner/orders/${id}`).set(inOrg(d.token, c.orgId)).expect(200);
+    expect(after.body.manager).toEqual({ memberId: inv[0].memberId, fullName: 'Диспетчер Передачи' });
+    const log = await pool.query("SELECT count(*)::int AS n FROM order_assignments WHERE order_id = $1 AND kind = 'manager_changed'", [id]);
+    expect(log.rows[0].n).toBe(1);
+  });
 });

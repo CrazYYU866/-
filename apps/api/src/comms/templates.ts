@@ -33,6 +33,7 @@ export const TEMPLATES: Record<string, T> = {
   'order.removed_from_partner': () => ({ title: 'Заказ снят с компании', body: 'Заказ передан другому исполнителю' }),
   'order.incident': () => ({ title: 'Сообщение о проблеме', body: 'Машинист сообщил о проблеме на заказе' }),
   'order.disputed': () => ({ title: 'Открыт спор', body: 'Заказчик оспаривает выполнение заказа' }),
+  'order.manager_changed': () => ({ title: 'Вам передан заказ', body: 'Руководитель назначил вас управляющим по заказу' }),
   'order.debt_created': (p) => ({ title: 'Задолженность', body: `Оплатите ${rub(p['amountKopecks'])} — до оплаты новые заказы недоступны` }),
   'order.extension_requested': (p) => ({ title: 'Запрос дополнительного времени', body: `Машинист просит ещё ${String(p['hours'])} ч — ${rub(p['amountKopecks'])}` }),
   'order.extension_approved': () => ({ title: 'Продление подтверждено', body: 'Можно продолжать работу' }),

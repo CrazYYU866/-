@@ -238,6 +238,27 @@ export class AssignmentService implements OnModuleInit {
     });
   }
 
+  // ── Управляющий диспетчер (Р-1, П-8) ─────────────────────────────────────
+
+  /** Передать управление заказом другому диспетчеру или руководителю компании (П-8: только руководитель). */
+  async transferManagement(org: OrgContext, actorUserId: string, orderId: string, memberId: string): Promise<void> {
+    await this.core.db.transaction(async (tx) => {
+      const order = await this.core.lock(tx, orderId);
+      this.assertPartner(order, org);
+      if (['completed', 'cancelled', 'cancelled_unpaid', 'refund_pending', 'search_failed'].includes(order.status)) {
+        throw new AppException(ERROR_CODES.ORDER_STATUS_CONFLICT, 'Заказ уже завершён или отменён', HttpStatus.CONFLICT);
+      }
+      const target = (await tx.execute<{ id: string; user_id: string; role: string }>(sql`
+        SELECT id, user_id, role FROM organization_members
+        WHERE id = ${memberId} AND org_id = ${org.orgId} AND status = 'active' AND role IN ('owner', 'manager', 'dispatcher')`)).rows[0];
+      if (!target) throw new AppException(ERROR_CODES.NOT_FOUND, 'Сотрудник не найден или не может управлять заказами', HttpStatus.NOT_FOUND);
+      if (order.managing_member_id === target.id) return;
+      await tx.execute(sql`UPDATE orders SET managing_member_id = ${target.id}, version = version + 1 WHERE id = ${orderId}`);
+      await this.core.assignmentLog(tx, { orderId, orgId: org.orgId, kind: 'manager_changed', actorId: actorUserId });
+      await this.core.events.emit({ type: 'order.manager_changed', orderId, orgId: org.orgId, userIds: [target.user_id], payload: {} }, tx);
+    });
+  }
+
   // ── Замена техники ────────────────────────────────────────────────────────
 
   async replacementUnits(org: OrgContext, orderId: string) {

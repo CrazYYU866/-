@@ -484,8 +484,14 @@ export class OrdersService implements OnModuleInit {
       ? Number(order.partner_amount_kopecks)
       : order.partner_org_id ? (await this.settlement.split(order)).partner : null;
     const paid = Number(order.paid_kopecks);
+    const manager = order.managing_member_id
+      ? (await this.core.db.execute<{ id: string; full_name: string | null }>(sql`
+          SELECT m.id, u.full_name FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.id = ${order.managing_member_id}`)).rows[0] ?? null
+      : null;
     const partnerView = {
       ...base,
+      // Управляющий диспетчер (Р-1, П-8).
+      manager: manager ? { memberId: manager.id, fullName: manager.full_name } : null,
       partnerPrice: {
         amountKopecks: amount,
         deliveryKm: order.partner_delivery_km !== null ? Number(order.partner_delivery_km) : null,

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, View } from 'react-native';
-import { can, useOrg } from '../../lib/org';
+import { can, ROLE_LABEL, useOrg, type Role } from '../../lib/org';
 import { PAYMENT_LABEL, SHIFT_LABEL, type PartnerOrder } from '../../lib/types';
 
 const RELEASABLE = ['awaiting_prepayment', 'awaiting_assignment', 'assigned', 'en_route', 'arrived'];
@@ -46,6 +46,8 @@ export default function PartnerOrderScreen() {
           {o.customerPaymentStatus ? <T v="small" muted>{PAYMENT_LABEL[o.customerPaymentStatus]}. Выплата — на следующий день после завершения заказа.</T> : null}
         </Card>
       ) : null}
+
+      <ManagerCard order={o} canTransfer={can(current).manage} onDone={refresh} />
 
       {o.status === 'awaiting_prepayment' ? <Notice tone="info">Ждём оплату заказчика. После оплаты назначьте машиниста.</Notice> : null}
 
@@ -200,5 +202,35 @@ function RateCustomer({ orderId }: { orderId: string }) {
         {rate.error ? <Notice tone="danger">{(rate.error as Error).message}</Notice> : null}
       </Card>
     </Section>
+  );
+}
+
+const DONE = ['completed', 'cancelled', 'cancelled_unpaid', 'refund_pending', 'search_failed'];
+
+/** Кто ведёт заказ (Р-1); передать управление другому диспетчеру может руководитель (П-8). */
+function ManagerCard({ order: o, canTransfer, onDone }: { order: PartnerOrder; canTransfer: boolean; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState('');
+  const members = useQuery({
+    queryKey: ['members-dispatch'], enabled: open,
+    queryFn: () => api<{ id: string; fullName: string | null; phone: string; role: string; status: string }[]>('/partner/members'),
+  });
+  const transfer = useMutation({ mutationFn: () => post(`/partner/orders/${o.id}/manager`, { memberId: pick }), onSuccess: () => { setOpen(false); onDone(); } });
+  if (!o.manager && !canTransfer) return null;
+  const candidates = (members.data ?? []).filter((m) => m.status === 'active' && ['owner', 'manager', 'dispatcher'].includes(m.role) && m.id !== o.manager?.memberId);
+  return (
+    <Card>
+      <Row label="Ведёт заказ" value={o.manager?.fullName ?? 'не указан'} />
+      {canTransfer && !DONE.includes(o.status) && !open ? <Button small kind="secondary" title="Передать другому диспетчеру" onPress={() => setOpen(true)} /> : null}
+      {open ? (
+        <View style={{ gap: space.sm }}>
+          {members.data && !candidates.length ? <T muted>Нет других диспетчеров в компании.</T> : null}
+          {candidates.length ? <Choice value={pick} onChange={setPick} options={candidates.map((m) => ({ value: m.id, label: m.fullName ?? m.phone, hint: ROLE_LABEL[m.role as Role] }))} /> : null}
+          {transfer.error ? <Notice tone="danger">{(transfer.error as Error).message}</Notice> : null}
+          <Button small title="Передать" disabled={!pick} loading={transfer.isPending} onPress={() => transfer.mutate()} />
+          <Button small kind="ghost" title="Отмена" onPress={() => setOpen(false)} />
+        </View>
+      ) : null}
+    </Card>
   );
 }
